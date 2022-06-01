@@ -76,7 +76,7 @@ else:
             processed_data.extend(features)
 
 # save data
-data_path = f'{save_dir}/data.pkl'
+data_path = f'{save_dir}/data2.pkl'
 with open(data_path, 'wb') as file:
     pickle.dump(processed_data, file)
 kwargs.update({'n_examples': len(processed_data)})

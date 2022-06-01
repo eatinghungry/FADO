@@ -21,7 +21,7 @@ Siyang Liu*, **Chujie Zheng***, Orianna Demasi, Sahand Sabour, Yu Li, Zhou Yu, Y
 ## Preparing Enviroment
 
 ```bash
-conda env create -f env.yml -n cuda
+conda env create -f env.yml -n comet
 conda activate cuda
 ```
 

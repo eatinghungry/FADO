@@ -1,0 +1,9 @@
+Counter({'anxiety': 354, 'depression': 334, 'sadness': 308, 'anger': 111, 'fear': 95, 
+'shame': 42, 'disgust': 40, 'nervousness': 13, 'pain': 1, 'jealousy': 1, 'guilt': 1})
+
+Counter({'ongoing depression': 351, 'job crisis': 280, 'breakup with partner': 239, 
+'problems with friends': 179, 'academic pressure': 156, 'Sleep Problems': 28,
+ 'Procrastination': 13, 'Alcohol Abuse': 12, 'Appearance Anxiety': 12,
+  'conflict with parents': 10, 'Issues with Children': 10, 'Issues with Parents': 8, 
+  'School Bullying': 2})
+

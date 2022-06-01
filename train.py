@@ -268,14 +268,32 @@ while True:
     (tr_loss, tr_ppl, mean_ppl, nb_tr_examples, nb_tr_steps) = 0.0, 0.0, 0.0, 0, 0
     n_token_real, n_token_total = 0, 0
     train_start_time_epoch = time.time()
-    for batch in train_dataloader:
+    for batch in train_dataloader: 
         # activate new training mode
         batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in batch.items()}
         batch.update({'global_step': global_step})
         batch.update({'epoch': epoch})
         batch.update({'warmup_steps': args.warmup_steps})
         # 对模型进行训练
-        outputs = model(**batch)
+        #for i in range(len(batch)): #system length
+            #inputs->List[dict] 
+            #dict{
+            # input_id,
+            # target_id,
+            # stratid,
+            # }
+            # context += text
+        # for i in range(len(batch['decoder_input_ids'])):
+        #     mini_batch = dict()
+        #     mini_batch['input_ids'] = batch['input_ids'][i]
+        #     mini_batch['attention_mask'] = batch['attention_mask'][i]
+        #     mini_batch['decoder_input_ids'] = batch['decoder_input_ids'][i]
+        #     mini_batch['labels'] = batch['labels'][i]
+
+        #     strat_id, log_prob = pred_strat(mini_batch['input_ids'], mini_batch['strat_id'][:i])
+        #     reward, rl_loss = calc_reward()
+
+        outputs = model(**batch) # Seq2SeqLMOutput
         
         loss = outputs.pop('all')
         ppl = outputs.pop('ppl')
@@ -371,6 +389,7 @@ while True:
 
                     eval_loss, eval_ppl, eval_samples, *_ = eval_model_loss(
                         model=model,
+                        toker=toker,
                         eval_dataloader=eval_dataloader_loss,
                         epoch_id=epoch,
                         infer=False,
@@ -396,6 +415,7 @@ while True:
     
             eval_loss, eval_ppl, eval_samples, *_ = eval_model_loss(
                 model=model,
+                toker=toker,
                 eval_dataloader=eval_dataloader_loss,
                 epoch_id=epoch,
                 infer=False,

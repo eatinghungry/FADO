@@ -19,7 +19,7 @@ class BucketSampler(Sampler):
     """
     def __init__(self, lens, bucket_size, batch_size,
                  droplast=False, shuffle=True):
-        self._lens = lens
+        self._lens = lens #feature len?
         self._batch_size = batch_size
         self._bucket_size = bucket_size
         self._droplast = droplast

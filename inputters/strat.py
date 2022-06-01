@@ -53,16 +53,16 @@ class InputFeatures(object):
 
 
 def featurize(
-    bos, eos,
-    context, max_input_length,
-    response, max_decoder_input_length, strat_id,
+    bos, eos, #bos: beginning of sentence?
+    context, max_input_length, #context is from both seekers and supporters
+    response, max_decoder_input_length, strat_id, #response is from seekers?
 ):
-    context = [c + [eos] for c in context]
-    input_ids = sum(context, [])[:-1]
+    context = [c + [eos] for c in context] #
+    input_ids = sum(context, [])[:-1] #flatten
     input_ids = input_ids[-max_input_length:]
     
-    labels = ([strat_id] + response + [eos])[:max_decoder_input_length + 1]
-    decoder_input_ids = [bos] + labels[:-1]
+    labels = ([strat_id] + response + [eos])[:max_decoder_input_length + 1] #ground truth
+    decoder_input_ids = [bos] + labels[:-1] # bos+strat_id+reponse No eos
     
     assert len(decoder_input_ids) == len(labels), decoder_input_ids[1:] == labels[:-1]
 
@@ -71,6 +71,25 @@ def featurize(
         decoder_input_ids, labels,
     )
 
+def featurize2(
+    bos, eos, dialogid,#bos: beginning of sentence?
+    context, max_input_length, #context is from both seekers and supporters
+    response, max_decoder_input_length, strat_id, #response is from seekers?
+):
+    context = [c + [eos] for c in context] #
+    #input_ids = sum(context, [])[:-1] #flatten
+    input_ids = input_ids[-max_input_length:]
+    #strat_id 不用 ground truth
+    labels = ([strat_id] + response + [eos])[:max_decoder_input_length + 1] #ground truth
+    decoder_input_ids = [bos] + labels[:-1] # bos+strat_id+reponse No eos
+    
+    assert len(decoder_input_ids) == len(labels), decoder_input_ids[1:] == labels[:-1]
+
+    return InputFeatures(
+        dialogid,
+        input_ids,
+        decoder_input_ids, labels,
+    )
 
 def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
     process = lambda x: toker.convert_tokens_to_ids(toker.tokenize(x))
@@ -90,6 +109,7 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
         
         if i > 0 and dialog[i]['speaker'] == 'sys':
             res = {
+                'dialogid': i,
                 'context': context.copy(),
                 'response': text,
                 'strat_id': strat_id,
@@ -130,6 +150,7 @@ def convert_inputs_to_features(inputs, toker, **kwargs):
     features = []
     for i in range(len(inputs)):
         ipt = inputs[i]
+        dialogid = ipt['dialogid']
         feat = featurize(
             bos, eos,
             ipt['context'], max_input_length,
@@ -180,7 +201,7 @@ class FeatureDataset(Dataset):
             decoder_input_ids = torch.tensor([[f.decoder_input_ids[0]] for f in features], dtype=torch.long)
             labels = None
         
-        strat_id = torch.tensor([f.labels[0] for f in features], dtype=torch.long) - len(toker) + 8
+        strat_id = torch.tensor([f.labels[0] for f in features], dtype=torch.long) - len(toker) + 8 # why -len(toker) + 8
         
         res = {
             'input_ids': input_ids,

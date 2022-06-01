@@ -16,7 +16,8 @@ logger = logging.getLogger(__name__)
 def boolean_string(s):
     if s.lower() not in {'false', 'true'}:
         raise ValueError('Not a valid boolean string')
-    return s.lower() == 'true'
+    c = s.lower() == 'true'
+    return c
 
 
 def build_model(only_toker=False, checkpoint=None, local_rank=-1, **kwargs):
@@ -32,7 +33,11 @@ def build_model(only_toker=False, checkpoint=None, local_rank=-1, **kwargs):
     if 'model_name' not in config or 'pretrained_model_path' not in config:
         raise ValueError
     toker = AutoTokenizer.from_pretrained(config['pretrained_model_path'])
+    # special_tokens_dict = {'cls_token': '<CLS>'}
+    # num_added_toks = toker.add_special_tokens(special_tokens_dict)
+    # print('We have added', num_added_toks, 'tokens')
     
+    #assert toker.cls_token == '<CLS>'
     if only_toker:
         if 'expanded_vocab' in config:
             toker.add_tokens(config['expanded_vocab'], special_tokens=True)
@@ -40,6 +45,7 @@ def build_model(only_toker=False, checkpoint=None, local_rank=-1, **kwargs):
     
     Model = models[config['model_name']]
     model = Model.from_pretrained(config['pretrained_model_path'])
+    #model.resize_token_embeddings(len(toker))
     if config.get('custom_config_path', None) is not None:
         model = Model(AutoConfig.from_pretrained(config['custom_config_path']))
     

@@ -28,7 +28,7 @@ def cal_entropy(generated):
     return etp_score, div_score
 
 
-def eval_model_loss(model, eval_dataloader, epoch_id, infer, args):
+def eval_model_loss(model, toker, eval_dataloader, epoch_id, infer, args):
     # use the same signature with eval_model_generation
     logger.info('compute eval model loss, using eval mode, '
                 'please change it back to train after calling this function')
@@ -37,13 +37,48 @@ def eval_model_loss(model, eval_dataloader, epoch_id, infer, args):
     tot_sample = []
     pointwise_loss = []
     pointwise_sample = []
+    strat_acc = []
     with torch.no_grad():
         for step, batch in enumerate(eval_dataloader):
             batch = {k: v.to(args.device) if isinstance(v, Tensor) else v for k, v in batch.items()}
-            loss_sample, n_sample, = model(
+            loss_sample, n_sample= model(
                 validation=True,
                 **batch
             )
+            #print('!!!!'*5, logits.shape)
+            # logits = logits[:, 0, -8:]
+            # strat_preds = torch.argmax(logits, dim=-1)
+
+            return_dict = model.config.use_return_dict
+            
+            encoder_outputs = model.model.encoder(
+            input_ids= batch['input_ids'],
+            attention_mask= batch['attention_mask'],
+            return_dict=return_dict,
+        )
+            
+            decoder_outputs = model.model.decoder(
+                input_ids=batch['decoder_input_ids'],
+                encoder_hidden_states=encoder_outputs[0],
+                encoder_attention_mask=batch['attention_mask'],
+                return_dict=return_dict,
+            )
+            lm_logits = model.lm_head(decoder_outputs.last_hidden_state) + model.final_logits_bias
+            print('!!!!'*5, lm_logits.shape)
+
+            encoded_info = {
+            'pred_strat_id':0,
+            'pred_strat_id_top1': 0,
+            'pred_strat_id_top3': 0,
+            'pred_strat_id_dist': 0
+        }
+            strat_preds=model.predict_strategy(lm_logits, encoded_info)
+            print('asdfasdfadfaeds',strat_preds)
+            strat_preds += (len(toker) - 8)
+            strat_ground_truth = batch['decoder_input_ids'][:,1]
+            print('!!!!'*10, strat_ground_truth)
+            tmp = (strat_preds == strat_ground_truth).float()
+            strat_acc.append(torch.mean(tmp).detach().cpu().numpy())
             if torch.isnan(loss_sample).sum().cpu().long().numpy() > 0:
                 print(loss_sample)
                 exit()
@@ -57,5 +92,6 @@ def eval_model_loss(model, eval_dataloader, epoch_id, infer, args):
     tot_sample = np.sum(tot_sample)
     mean_loss = tot_loss / tot_sample
     mean_ppl = np.exp(mean_loss)
-    print(f"\n Epoch {epoch_id}: Val loss {mean_loss} Val ppl {mean_ppl} ")
+    mean_strat_acc = np.mean(strat_acc)
+    print(f"\n Epoch {epoch_id}: Val loss {mean_loss} Val ppl {mean_ppl}  Strat_acc {mean_strat_acc}")
     return mean_loss, mean_ppl, tot_sample, pointwise_loss, pointwise_sample

@@ -13,7 +13,7 @@ from torch import Tensor
 from transformers.trainer_utils import set_seed
 
 from inputters import inputters
-from inputters.inputter_utils import _norm
+from inputters.inputter_utils_seq import _norm
 from metric.myMetrics import Metric
 from utils.building_utils import boolean_string, build_model, deploy_model
 from utils.eval_utils import eval_model_loss
@@ -187,6 +187,7 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
     decode = lambda x: _norm(toker.decode(x))
     for batch, posts, references, sample_ids in infer_dataloader:
         batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in batch.items()}
+        batch['decoder'][0]
         batch.update(generation_kwargs)
         encoded_info, generations = model.generate(**batch)
         
