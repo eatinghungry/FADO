@@ -5,6 +5,7 @@ import logging
 from torch import Tensor
 import numpy as np
 from collections import defaultdict
+import torch.nn.functional as F
 
 logger = logging.getLogger(__name__)
 
@@ -28,7 +29,7 @@ def cal_entropy(generated):
     return etp_score, div_score
 
 
-def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
+def eval_model_loss(model, toker, eval_dataloader, epoch_id, infer, args):
     # use the same signature with eval_model_generation
     logger.info('compute eval model loss, using eval mode, '
                 'please change it back to train after calling this function')
@@ -41,15 +42,50 @@ def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
     with torch.no_grad():
         for step, batch in enumerate(eval_dataloader):
             batch = {k: v.to(args.device) if isinstance(v, Tensor) else v for k, v in batch.items()}
-            strat_preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
-                            batch['strat_hist'], batch['sentiment_hist'], 
-                            batch['utterance_num'], batch['emotion'], batch['problem'])
-            strat_preds += (len(toker) - 9) #strat_preds max value is 8
+            loss_sample, n_sample= model(
+                validation=True,
+                **batch
+            )
+            #print('!!!!'*5, logits.shape)
+            # logits = logits[:, 0, -8:]
+            # strat_preds = torch.argmax(logits, dim=-1)
+
+            return_dict = model.config.use_return_dict
+            
+            encode_logits = model.model.encoder(
+            input_ids= batch['input_ids'],
+            attention_mask= batch['attention_mask'],
+            return_dict=return_dict,
+        )
+            
+            # decoder_outputs = model.model.decoder(
+            #     input_ids=batch['decoder_input_ids'],
+            #     encoder_hidden_states=encoder_outputs[0],
+            #     encoder_attention_mask=batch['attention_mask'],
+            #     return_dict=return_dict,
+            # )
+            encode_logits = encode_logits['last_hidden_state']
+            encode_logits = torch.mean(encode_logits, 1)
+            encode_logits = F.relu(model.encode_head(encode_logits))
+            #encode_loss = F.cross_entropy(encode_logits, kwargs['strat_id'])
+            strat_preds = torch.max(encode_logits, 1)[1]
+        #     lm_logits = model.lm_head(decoder_outputs.last_hidden_state) + model.final_logits_bias
+        #     print('!!!!'*5, lm_logits.shape)
+
+        #     encoded_info = {
+        #     'pred_strat_id':0,
+        #     'pred_strat_id_top1': 0,
+        #     'pred_strat_id_top3': 0,
+        #     'pred_strat_id_dist': 0
+        # }
+            #strat_preds=model.predict_strategy(lm_logits, encoded_info)
+            #print('asdfasdfadfaeds',strat_preds)
+            strat_preds += (len(toker) - 8)
             strat_ground_truth = batch['decoder_input_ids'][:,1]
+            print('!!!!'*10, strat_ground_truth, strat_preds)
             tmp = (strat_preds == strat_ground_truth).float()
-            #print(f'strat_preds: {strat_preds}')
-            batch['decoder_input_ids'][:,1] = strat_preds
             strat_acc.append(torch.mean(tmp).detach().cpu().numpy())
+            batch['decoder_input_ids'][:,1] = strat_preds
             loss_sample, n_sample = model(
                 validation=True,
                 **batch

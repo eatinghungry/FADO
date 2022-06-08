@@ -17,7 +17,7 @@ from inputters import inputters
 from inputters.inputter_utils_seq import _norm
 from metric.myMetrics import Metric
 from utils.building_utils import boolean_string, build_model, deploy_model
-from utils.eval_utils_rl import eval_model_loss
+from utils.eval_utils_prompt import eval_model_loss
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -227,17 +227,81 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
     if not args.only_generate:
         metric = Metric(toker)
     
+    def process_global_type(emo_path='./_reformat/emo_type.json', prob_path='./_reformat/prob_type.json'):
+        with open(emo_path, 'r') as f:
+            emo_dict = json.load(f)
+        with open(prob_path, 'r') as f2:
+            prob_dict = json.load(f2)
+
+        #emo_length, prob_length = len(emo_dict), len(prob_dict)
+        emo_dict = dict(map(lambda x:(x[1], x[0]), emo_dict.items()))
+        prob_dict = dict(map(lambda x: (x[1], x[0]), prob_dict.items()))
+
+
+        return emo_dict, prob_dict 
+
     res = []
     other_res = {}
+    max_input_length = 160
     decode = lambda x: _norm(toker.decode(x))
+    strategies = ['Question', 'Restatement or Paraphrasing', 'Reflection of feelings', 'Self-disclosure',
+                   'Affirmation and Reassurance', 'Providing Suggestions', 'Information', 'Others' ]
+    strats_in_nlg = ['asking questions', 'restatement or paraphrasing', 'reflection of feelings', 'self-disclosure', 
+            'affirmation and reassurance', 'providing suggestions', 'providing information', 'others strategies']
+    strat_dict = dict(zip(strategies, strats_in_nlg))
+
+    emo_dict, prob_dict = process_global_type()
     for batch, posts, references, sample_ids in infer_dataloader:
         batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in batch.items()}
         #batch['decoder'][0]
         batch.update(generation_kwargs)
-        logits = dqn.choose_action2(batch['input_ids'], batch['attention_mask'], 
+        logits = dqn.choose_action2(batch['input_ids_og'], batch['attention_mask_og'], 
+                batch['strat_hist'], batch['sentiment_hist'], 
+                batch['utterance_num'], batch['emotion'], batch['problem'])
+        strat_preds = dqn.choose_action(batch['input_ids_og'], batch['attention_mask_og'], 
                 batch['strat_hist'], batch['sentiment_hist'], 
                 batch['utterance_num'], batch['emotion'], batch['problem'])
         #strat_preds += (len(toker) - 9) #strat_preds max value is 8
+        process = lambda x: toker.convert_tokens_to_ids(toker.tokenize(x))
+            
+        for i in range(batch['problem'].shape[0]):
+            # prob_idx, emo_idx = int(torch.argmax(batch['problem'][i]).cpu().numpy()), int(torch.argmax(batch['emotion'][i]).cpu().numpy())
+            # prompt_txt = f'The problem of the user is {prob_dict[prob_idx]}, and the emotion is {emo_dict[emo_idx]} now. I will use the strategy of {strategies[strat_preds[i]]} to help him'
+            # #prompt_list.append(process(prompt_txt))
+            # prompt_txt = process(prompt_txt)
+            # # len_gap = len(batch['prompt'][i]) - len(prompt_txt)
+            # # prompt_txt = torch.tensor(prompt_txt, dtype=torch.long).to('cuda')
+            # # if len_gap >= 0:
+            # #     batch['input_ids'][i, len_gap : len(prompt_txt)+len_gap] = prompt_txt
+            # # elif len_gap < 0:
+            # #     batch['input_ids'][i, :len(prompt_txt)] = prompt_txt
+            # prompt_txt = torch.tensor(prompt_txt, dtype=torch.long).to('cuda')
+            # input_ids = batch['input_ids_og'][i]#[-(max_input_length-len(prompt_txt)):]
+            # #input_ids = prompt_txt + input_ids
+            # input_ids[:len(prompt_txt)] = prompt_txt
+            # batch['input_ids'][i, :] = input_ids
+            #prob_idx, emo_idx = int(torch.argmax(batch['problem'][i]).cpu().numpy()), int(torch.argmax(batch['emotion'][i]).cpu().numpy())
+            strat_in_nlg = strat_dict[strategies[strat_preds[i]]]
+            prompt_txt = f'p: please generate a gentle response with the strategy of {strat_in_nlg}.'
+            #prompt_list.append(process(prompt_txt))
+            prompt_txt = process(prompt_txt)
+            #len_gap = len(batch['prompt'][i]) - len(prompt_txt)
+            prompt_txt = torch.tensor(prompt_txt, dtype=torch.long).to('cuda')
+            input_ids = batch['input_ids_og'][i]
+            input_ids = input_ids[-(max_input_length-len(prompt_txt)):]
+            input_ids = torch.cat((input_ids, prompt_txt))#input_ids + prompt_txt
+            #print('lolllllololo',input_ids.shape, batch['input_ids'][i].shape)
+            #print('lsdfadfoo', len(prompt_txt), prompt_txt.shape, )
+            c_id = process('c: ')
+            c_id = torch.tensor(c_id, dtype=torch.long).to('cuda')
+            input_ids[:len(c_id)] = c_id
+            # if len_gap >= 0:
+            #     batch['input_ids'][i, len_gap : len(prompt_txt)+len_gap] = prompt_txt
+            # elif len_gap < 0:
+            #     batch['input_ids'][i, :len(prompt_txt)] = prompt_txt
+            batch['input_ids'][i, :] = input_ids
+
+
         batch['strat_logits'] = logits
         #strat_ground_truth = batch['decoder_input_ids'][:,1]
         #tmp = (strat_preds == strat_ground_truth).float()

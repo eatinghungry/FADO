@@ -5,6 +5,7 @@ import torch.nn.functional as F                 # 导入torch.nn.functional
 import numpy as np                              # 导入numpy
 from transformers import AutoModel, AutoTokenizer
 from zmq import device
+import copy
 
 
 BATCH_SIZE = 32                                 # 样本数量
@@ -124,19 +125,19 @@ class QNet(nn.Module):
         return predict
 
 class DQN(object):
-    def __init__(self, model, toker, text_in_size=512, checkpt='./roberta-base', device='cuda'):     
+    def __init__(self, model, toker, text_in_size=512, checkpt='./roberta-base', device='cuda', lr=LR):     
         self.model = model  
         self.loss_func = nn.MSELoss()
         self.tokenizer = toker#AutoTokenizer.from_pretrained(checkpt)
-        self.model = model#AutoModel.from_pretrained(checkpt).to(device)                                               # 定义DQN的一系列属性
+        #self.model = model#AutoModel.from_pretrained(checkpt).to(device)                                               # 定义DQN的一系列属性
         #self.eval_net, self.target = QNet(text_in_size).to(device), QNet(text_in_size).to(device)           
         self.eval_net = QNet(text_in_size).to(device)
         self.device = device
         self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=LR)
         self.parameters = self.eval_net.parameters()
         self.loss_func2 = nn.CrossEntropyLoss()
-        self.embed = self.model.get_encoder()
-
+        self.embed = self.model.get_strat_encoder()
+       # self.embed = self.model.get_encoder()
     def choose_action(self, context, attention_mask, strat_hist, sentiment_hist,utterance_num, emotion, problem):   
         return_dict = self.model.config.use_return_dict
         embed = self.embed(

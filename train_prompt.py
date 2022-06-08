@@ -24,7 +24,7 @@ from models.dqn import DQN
 from inputters import inputters
 from utils.building_utils import boolean_string, build_model, deploy_model
 from utils.distributed import all_reduce_and_rescale_tensors, all_gather_list
-from utils.eval_utils_rl import eval_model_loss
+from utils.eval_utils_prompt import eval_model_loss
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -59,7 +59,6 @@ parser.add_argument("--gradient_accumulation_steps", type=int, default=1,
                          "and reduce synchronization")
 parser.add_argument("--eval_batch_size", type=int, default=16)
 parser.add_argument("--learning_rate", type=float, default=1e-5)
-parser.add_argument("--learning_rate_dqn", type=float, default=1e-5)
 parser.add_argument("--warmup_steps", type=int, default=16000)
 
 parser.add_argument("--num_optim_steps", type=int, default=20000,
@@ -205,7 +204,7 @@ eval_dataloader_loss = inputter.valid_dataloader(
 #########################################################################
 _, model = build_model(checkpoint=args.load_checkpoint, local_rank=args.local_rank, **names)
 model = deploy_model(model, args, local_rank=args.local_rank)
-dqn = DQN(model, toker, lr=args.learning_rate_dqn)
+dqn = DQN(model, toker)
 
 if args.local_rank != -1:
     # when from scratch make sure initial models are the same
@@ -301,7 +300,7 @@ while True:
 
         #context = [toker.convert_ids_to_tokens(batch['input_ids'][i].detach().cpu().numpy()) for i in range(batch['input_ids'].shape[0])]
         # context = [toker.convert_tokens_to_string(c) for c in context]
-        loss_agent = dqn.learn(batch['input_ids'], batch['attention_mask'], 
+        loss_agent = dqn.learn(batch['input_ids_og'], batch['attention_mask_og'], 
                                batch['strat_hist'], batch['sentiment_hist'], batch['reward'], 
                                batch['strat_id'], batch['utterance_num'],
                                batch['emotion'], batch['problem'])
@@ -323,7 +322,7 @@ while True:
             assert 'src_input_ids' in batch
             input_ids = batch['src_input_ids']
         #loss = args.weight_lm_loss*loss_decoder + args.weight_rl_loss*loss_agent
-        loss = loss_decoder# + 2*loss_agent
+        loss = 1*loss_decoder# + 2*loss_agent
         if n_gpu > 1:
             loss = loss.mean()
             ppl = ppl.mean()

@@ -11,13 +11,14 @@ import torch
 from sklearn.metrics import classification_report, f1_score, confusion_matrix
 from torch import Tensor
 from transformers.trainer_utils import set_seed
-from models.dqn import DQN
+#from models.dqn import DQN
 
 from inputters import inputters
 from inputters.inputter_utils_seq import _norm
 from metric.myMetrics import Metric
 from utils.building_utils import boolean_string, build_model, deploy_model
-from utils.eval_utils_rl import eval_model_loss
+from utils.eval_base import eval_model_loss
+import torch.nn.functional as F
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -79,8 +80,8 @@ parser.add_argument('--config_name', type=str, default='strat',required=True)
 parser.add_argument('--inputter_name', type=str, default='stratrl', required=True)
 parser.add_argument("--seed", type=int, default=13)
 parser.add_argument("--load_checkpoint", '-c', type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/epoch-0.bin')
-parser.add_argument("--dqn_embed_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_embed_636.bin')
-parser.add_argument("--dqn_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_636.bin')
+# parser.add_argument("--dqn_embed_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_embed_636.bin')
+# parser.add_argument("--dqn_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_636.bin')
 
 #parser.add_argument("--fp16", default=False)
 parser.add_argument("--fp16", type=boolean_string, default=False)
@@ -135,8 +136,8 @@ names = {
 }
 
 toker, model = build_model(checkpoint=args.load_checkpoint, **names)
-dqn = DQN(model, toker)
-dqn.load(args.dqn_checkpoint, args.dqn_embed_checkpoint, device)
+# dqn = DQN(model, toker)
+# dqn.load(args.dqn_checkpoint, args.dqn_embed_checkpoint, device)
 model = deploy_model(model, args) #for multi gpu purpose
 
 model_parameters = list(filter(lambda p: p.requires_grad, model.parameters()))
@@ -148,8 +149,8 @@ logger.info('Number of parameter = {}'.format(total_params))
 #     model, optimizer = amp.initialize(model, opt_level="O1")
 
 model.eval()
-dqn.embed.eval()
-dqn.eval_net.eval()
+# dqn.embed.eval()
+# dqn.eval_net.eval()
 inputter = inputters[args.inputter_name]()
 dataloader_kwargs = {
     'max_src_turn': args.max_src_turn,
@@ -212,7 +213,6 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
         )
         infer_loss, _, infer_samples, pointwise_loss, pointwise_sample = eval_model_loss(
             model,
-            dqn,
             toker,
             eval_dataloader=loss_loader,
             epoch_id=0,
@@ -234,11 +234,18 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
         batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in batch.items()}
         #batch['decoder'][0]
         batch.update(generation_kwargs)
-        logits = dqn.choose_action2(batch['input_ids'], batch['attention_mask'], 
-                batch['strat_hist'], batch['sentiment_hist'], 
-                batch['utterance_num'], batch['emotion'], batch['problem'])
+        return_dict = model.config.use_return_dict
+        
+        encode_logits = model.model.encoder(
+        input_ids= batch['input_ids'],
+        attention_mask= batch['attention_mask'],
+        return_dict=return_dict,
+        )
         #strat_preds += (len(toker) - 9) #strat_preds max value is 8
-        batch['strat_logits'] = logits
+        encode_logits = encode_logits['last_hidden_state']
+        encode_logits = torch.mean(encode_logits, 1)
+        encode_logits = F.relu(model.encode_head(encode_logits))
+        batch['strat_logits'] = encode_logits
         #strat_ground_truth = batch['decoder_input_ids'][:,1]
         #tmp = (strat_preds == strat_ground_truth).float()
         #print(f'strat_preds: {strat_preds}')

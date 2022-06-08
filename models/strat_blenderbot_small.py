@@ -133,15 +133,16 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             use_cache=use_cache,
             return_dict=return_dict,
         )
+        tmp = outputs[0]
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
         #lm_logits2 = self.lm_head(outputs['last_hidden_stat']) + self.final_logits_bias
         #assert lm_logits == lm_logits2, 'logit outputs[0] does not equal to outputs last_hidden_stat'
 
-        encode_logits = outputs[1]  #outputs = decoder_outputs + encoder_outputs
-        print(encode_logits, '!!!!!!!!')
+        encode_logits = outputs['last_hidden_state']  #outputs = decoder_outputs + encoder_outputs
+        #print(encode_logits, '!!!!!!!!')
         encode_logits = torch.mean(encode_logits, 1)
         encode_logits = F.relu(self.encode_head(encode_logits))
-        encode_loss = F.cross_entropy(kwargs['strat_id'], encode_logits)
+        encode_loss = F.cross_entropy(encode_logits, kwargs['strat_id'])
         
         if validation:
             lm_logits = lm_logits[..., :self.toker.vocab_size].contiguous() #?

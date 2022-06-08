@@ -1,6 +1,6 @@
-CUDA_VISIBLE_DEVICES=0 python train_rl.py \
+CUDA_VISIBLE_DEVICES=0 python train_prompt.py \
     --config_name strat \
-    --inputter_name stratrl \
+    --inputter_name strat_prompt \
     --eval_input_file ./_reformat/dev_anno_nocon.txt \
     --seed 13 \
     --max_input_length 160 \
@@ -9,11 +9,8 @@ CUDA_VISIBLE_DEVICES=0 python train_rl.py \
     --gradient_accumulation_steps 1 \
     --eval_batch_size 16 \
     --learning_rate 3e-5 \
-    --learning_rate_dqn 1e-2 \
     --num_epochs 3 \
-    --valid_step 2000\
     --warmup_steps 100 \
     --fp16 false \
     --loss_scale 0.0 \
-    --pbar true \
-    --valid_step 10
+    --pbar true

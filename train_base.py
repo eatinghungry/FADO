@@ -24,7 +24,7 @@ from models.dqn import DQN
 from inputters import inputters
 from utils.building_utils import boolean_string, build_model, deploy_model
 from utils.distributed import all_reduce_and_rescale_tensors, all_gather_list
-from utils.eval_utils_rl import eval_model_loss
+from utils.eval_base import eval_model_loss
 
 logging.basicConfig(
     format='%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
@@ -315,7 +315,7 @@ while True:
         outputs = model.forward2(**batch) # Seq2SeqLMOutput
         
         loss_decoder = outputs.pop('all')
-        loss_encoder = outputs.pop('encode_loss')
+        loss_encoder = outputs.pop('pooling_loss')
         ppl = outputs.pop('ppl')
         
         if 'input_ids' in batch:
@@ -326,7 +326,7 @@ while True:
             assert 'src_input_ids' in batch
             input_ids = batch['src_input_ids']
         #loss = args.weight_lm_loss*loss_decoder + args.weight_rl_loss*loss_agent
-        loss = 1*loss_decoder + loss_encoder# + 2*loss_agent
+        loss = loss_decoder + loss_encoder# + 2*loss_agent
         if n_gpu > 1:
             loss = loss.mean()
             ppl = ppl.mean()
@@ -411,11 +411,11 @@ while True:
                     torch.save(model.state_dict(), join(output_dir, f'{global_step}.bin'))
                     toker.save_vocabulary(output_dir)
                     model.config.to_json_file(join(output_dir, f'config.json'))
-                    dqn.save(output_dir, global_step)
+                    #dqn.save(output_dir, global_step)
 
                     eval_loss, eval_ppl, eval_samples, *_ = eval_model_loss(
                         model=model,
-                        dqn = dqn,
+                        #dqn = dqn,
                         toker = toker,
                         eval_dataloader=eval_dataloader_loss,
                         epoch_id=epoch,
@@ -432,18 +432,18 @@ while True:
         
         if (step+1) % CACHE_EMPTY_STEP == 0:
             torch.cuda.empty_cache()
-    print(f'dqn loss {np.mean(loss_agent_list)}')
+    #print(f'dqn loss {np.mean(loss_agent_list)}')
     if args.num_epochs is not None:
         if args.local_rank == -1 or get_rank() == 0:
             # only rank 0 process evaluate
             torch.save(model.state_dict(), join(output_dir, f'epoch-{epoch}.bin'))
             toker.save_vocabulary(output_dir)
             model.config.to_json_file(join(output_dir, f'config.json'))
-            dqn.save(output_dir, global_step)
+            #dqn.save(output_dir, global_step)
     
             eval_loss, eval_ppl, eval_samples, *_ = eval_model_loss(
                 model=model,
-                dqn = dqn,
+                
                 toker = toker,
                 eval_dataloader=eval_dataloader_loss,
                 epoch_id=epoch,
