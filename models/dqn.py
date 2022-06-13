@@ -153,7 +153,7 @@ class DQN(object):
         _, actions = actions_value.max(1)
         #action = action[0]                                                  # 输出action的第一个数
         #urn action  
-        return actions   
+        return actions,actions_value.detach()
 
     def choose_action2(self, context, attention_mask, strat_hist, sentiment_hist,utterance_num, emotion, problem):   
         return_dict = self.model.config.use_return_dict
@@ -230,7 +230,7 @@ class DQN(object):
         #loss2.backward()
         self.optimizer.step()
         #print(f'DQN LOSSS:{loss.detach().cpu().numpy()}')
-        return loss.detach().cpu().numpy()
+        return loss.detach().cpu().numpy(), preds.detach()
 
 
 
@@ -267,7 +267,7 @@ class QNet2(nn.Module):
         x = self.activision(self.mlp(x))
         predict = self.predict(x)
 
-        return predict
+        return predict#, x
 
 class DQNRL(object):
     def __init__(self, model, toker, text_in_size=512, checkpt='./roberta-base', device='cuda'):     

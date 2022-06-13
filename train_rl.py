@@ -301,12 +301,13 @@ while True:
 
         #context = [toker.convert_ids_to_tokens(batch['input_ids'][i].detach().cpu().numpy()) for i in range(batch['input_ids'].shape[0])]
         # context = [toker.convert_tokens_to_string(c) for c in context]
-        loss_agent = dqn.learn(batch['input_ids'], batch['attention_mask'], 
+        loss_agent, preds = dqn.learn(batch['input_ids'], batch['attention_mask'], 
                                batch['strat_hist'], batch['sentiment_hist'], batch['reward'], 
                                batch['strat_id'], batch['utterance_num'],
                                batch['emotion'], batch['problem'])
         # reward = batch['returns']#compute_reward(pred_strat, batch['sentiment'], batch['user_rating'], batch['strat_ids'])
         #loss_agent = 0#dqn(reward, gamma, Q_t+1)
+        batch['preds'] = preds
         loss_agent_list.append(loss_agent)#.detach().cpu().numpy())
 
         # 对语言模型进行训练

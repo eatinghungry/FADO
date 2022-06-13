@@ -82,8 +82,8 @@ parser.add_argument("--load_checkpoint", '-c', type=str, default='/ziyuanqin/pro
 parser.add_argument("--dqn_embed_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_embed_636.bin')
 parser.add_argument("--dqn_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_636.bin')
 
-#parser.add_argument("--fp16", default=False)
-parser.add_argument("--fp16", type=boolean_string, default=False)
+parser.add_argument("--fp16", default=False)
+#parser.add_argument("--fp16", type=boolean_string, default=False)
 parser.add_argument("--max_input_length", type=int, default=160)
 parser.add_argument("--max_src_turn", type=int, default=None)
 parser.add_argument("--max_decoder_input_length", type=int, default=40)
@@ -237,8 +237,13 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
         logits = dqn.choose_action2(batch['input_ids'], batch['attention_mask'], 
                 batch['strat_hist'], batch['sentiment_hist'], 
                 batch['utterance_num'], batch['emotion'], batch['problem'])
+        strat_id, preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
+                batch['strat_hist'], batch['sentiment_hist'], 
+                batch['utterance_num'], batch['emotion'], batch['problem'])
         #strat_preds += (len(toker) - 9) #strat_preds max value is 8
         batch['strat_logits'] = logits
+        batch['strat_id'] = strat_id
+        batch['preds'] = preds
         #strat_ground_truth = batch['decoder_input_ids'][:,1]
         #tmp = (strat_preds == strat_ground_truth).float()
         #print(f'strat_preds: {strat_preds}')

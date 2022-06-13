@@ -41,14 +41,16 @@ def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
     with torch.no_grad():
         for step, batch in enumerate(eval_dataloader):
             batch = {k: v.to(args.device) if isinstance(v, Tensor) else v for k, v in batch.items()}
-            strat_preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
+            strat_preds, preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
                             batch['strat_hist'], batch['sentiment_hist'], 
                             batch['utterance_num'], batch['emotion'], batch['problem'])
-            strat_preds += (len(toker) - 9) #strat_preds max value is 8
+            strat_preds_2 = strat_preds + (len(toker) - 9) #strat_preds max value is 8
             strat_ground_truth = batch['decoder_input_ids'][:,1]
-            tmp = (strat_preds == strat_ground_truth).float()
+            tmp = (strat_preds_2 == strat_ground_truth).float()
             #print(f'strat_preds: {strat_preds}')
-            batch['decoder_input_ids'][:,1] = strat_preds
+            batch['decoder_input_ids'][:,1] = strat_preds_2
+            batch['strat_id'] = strat_preds
+            batch['preds'] = preds
             strat_acc.append(torch.mean(tmp).detach().cpu().numpy())
             loss_sample, n_sample = model(
                 validation=True,

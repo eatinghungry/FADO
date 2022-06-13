@@ -283,6 +283,7 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
             #prob_idx, emo_idx = int(torch.argmax(batch['problem'][i]).cpu().numpy()), int(torch.argmax(batch['emotion'][i]).cpu().numpy())
             strat_in_nlg = strat_dict[strategies[strat_preds[i]]]
             prompt_txt = f'p: please generate a gentle response with the strategy of {strat_in_nlg}.'
+            prompt_txt = f'strategy : {strat_in_nlg}'
             #prompt_list.append(process(prompt_txt))
             prompt_txt = process(prompt_txt)
             #len_gap = len(batch['prompt'][i]) - len(prompt_txt)

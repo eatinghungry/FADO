@@ -5,6 +5,7 @@ from base64 import encode
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+#from codes_zcj.inputters import strat
 from models.model_utils import BaseModel
 from transformers.generation_utils import top_k_top_p_filtering
 from transformers.models.blenderbot_small import (BlenderbotSmallConfig, BlenderbotSmallForConditionalGeneration,)
@@ -50,6 +51,8 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             past_key_values=past_key_values,
             use_cache=use_cache,
             return_dict=return_dict,
+            strat_id = kwargs['strat_id'],
+            preds = kwargs['preds']
         )
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
         # lm_logits2 = self.lm_head(outputs['last_hidden_stat']) + self.final_logits_bias
@@ -224,7 +227,7 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
     ):
         assert not self.training
         assert self.toker is not None
-        
+        #print(f"!!!!!!{kwargs.keys()}")
         encoded_info = kwargs
         assert decoder_input_ids.size(1) == 1
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
@@ -240,6 +243,8 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=attention_mask,
             return_dict=return_dict,
+            strat_id=kwargs['strat_id'],
+            preds=kwargs['preds']
         )
         lm_logits = self.lm_head(decoder_outputs.last_hidden_state) + self.final_logits_bias #?
         self.predict_strategy(encoded_info['strat_logits'], encoded_info)
