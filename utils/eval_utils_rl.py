@@ -5,6 +5,8 @@ import logging
 from torch import Tensor
 import numpy as np
 from collections import defaultdict
+import json
+from torch.nn.utils.rnn import pad_sequence
 
 logger = logging.getLogger(__name__)
 
@@ -27,9 +29,29 @@ def cal_entropy(generated):
         div_score[n] = (len(counter[n].values())+0.0) / total
     return etp_score, div_score
 
+def load_strat_def(path='/ziyuanqin/projects/nlp/comet/codes_zcj/models/strat_definition.json'):
+    with open(path, 'r') as f:
+        loaded_dict = json.load(f)
+    strat_def_dict = dict()
+    for key, item in loaded_dict.items():
+        strat_def_dict[key.lower()] = item
+    
+    return strat_def_dict
 
 def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
     # use the same signature with eval_model_generation
+    strat_dict = {
+    0: "Question",
+    1: "Restatement or Paraphrasing",
+    2: "Reflection of feelings",
+    3: "Self-disclosure",
+    4: "Affirmation and Reassurance",
+    5: "Providing Suggestions",
+    6: "Information",
+    7: "Others",
+    }  
+    strat_def_dict = load_strat_def()
+    process = lambda x: toker.convert_tokens_to_ids(toker.tokenize(x))
     logger.info('compute eval model loss, using eval mode, '
                 'please change it back to train after calling this function')
     model.eval()
@@ -45,6 +67,27 @@ def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
                             batch['strat_hist'], batch['sentiment_hist'], 
                             batch['utterance_num'], batch['emotion'], batch['problem'])
             strat_preds_2 = strat_preds + (len(toker) - 9) #strat_preds max value is 8
+            strat_defs = []
+            for i, strat_num in enumerate(strat_preds):
+                strat_num = int(strat_num.cpu().numpy())
+                num = strat_dict[strat_num]
+                strat_def = strat_def_dict[num.lower()]
+                strat_def = process(strat_def)
+                strat_defs.append(strat_def)
+
+            pad = toker.pad_token_id
+            if pad is None:
+                pad = toker.eos_token_id
+                assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
+            
+            strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
+                          batch_first=True, padding_value=pad).to('cuda')
+            strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
+                          batch_first=True, padding_value=0.).to('cuda')
+            
+            batch['strat_def'] = strat_def_batch
+            batch['strat_mask'] = strat_mask
+                
             strat_ground_truth = batch['decoder_input_ids'][:,1]
             tmp = (strat_preds_2 == strat_ground_truth).float()
             #print(f'strat_preds: {strat_preds}')

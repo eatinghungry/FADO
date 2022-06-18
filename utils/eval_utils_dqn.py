@@ -41,7 +41,7 @@ def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
     with torch.no_grad():
         for step, batch in enumerate(eval_dataloader):
             batch = {k: v.to(args.device) if isinstance(v, Tensor) else v for k, v in batch.items()}
-            strat_preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
+            strat_preds, preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
                             batch['strat_hist'], batch['sentiment_hist'])
             strat_preds += (len(toker) - 9) #strat_preds max value is 8
 
@@ -51,6 +51,7 @@ def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
             # strat_preds_str = [toker.convert_tokens_to_string(st2) for st2 in strat_preds_str]
             print(f'strat_preds: {strat_preds}_______________length_of_token={len(toker)-9}')
             batch['decoder_input_ids'][:,1] = strat_preds
+            batch['preds'] = preds
             strat_acc.append(torch.mean(tmp).detach().cpu().numpy())
             loss_sample, n_sample = model(
                 validation=True,

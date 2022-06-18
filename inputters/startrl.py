@@ -41,7 +41,7 @@ class InputFeatures(object):
         self,
         input_ids, strat_hist, sentiment_hist,
         decoder_input_ids, labels, returns, ls_ids, 
-        utterance_num, emotion, problem,
+        utterance_num, emotion, problem, strat_def
     ):
         self.input_ids = input_ids
         self.input_length = len(input_ids)
@@ -57,12 +57,14 @@ class InputFeatures(object):
         self.utterance_num = utterance_num
         self.emotion = emotion
         self.problem = problem
+        self.strat_def = strat_def
+        self.strat_length = len(strat_def)
 
 def featurize(
     cls, bos, eos, returns, strat_hist, sentiment_hist,#bos: beginning of sentence?
     context, max_input_length, last_sentence,#context is from both seekers and supporters
     response, max_decoder_input_length, strat_id,
-    utterance_num, emotion, problem, emotion_token # [emotion_token_id]
+    utterance_num, emotion, problem, emotion_token, strat_def, # [emotion_token_id]
 ):
     context = [c + [eos] for c in context]
     #context = [[bos] + c + [eos] for c in context]
@@ -73,7 +75,7 @@ def featurize(
     #input_ids = [cls] + input_ids
     #print(input_ids)
     assert len(input_ids) <= max_input_length, f'input length is out of the max input length {len(emotion_token)} {emotion_token}'
-    
+
     ls_ids = [ls + [eos] for ls in last_sentence] #multi usr rounds
     ls_ids = sum(last_sentence, [])[:-1]
     ls_ids = ls_ids[-max_input_length:]
@@ -87,7 +89,7 @@ def featurize(
     return InputFeatures(
         input_ids, strat_hist, sentiment_hist,
         decoder_input_ids, labels, returns, ls_ids, 
-        utterance_num, emotion, problem
+        utterance_num, emotion, problem, strat_def
     )
 
 #def 
@@ -143,6 +145,15 @@ def process_global_type(emo_path='./_reformat/emo_type.json', prob_path='./_refo
 
     return emo_dict, emo_length, prob_dict, prob_length 
 
+def load_strat_def(path='/ziyuanqin/projects/nlp/comet/codes_zcj/models/strat_definition.json'):
+    with open(path, 'r') as f:
+        loaded_dict = json.load(f)
+    strat_def_dict = dict()
+    for key, item in loaded_dict.items():
+        strat_def_dict[key.lower()] = item
+    
+    return strat_def_dict
+
 
 def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
     process = lambda x: toker.convert_tokens_to_ids(toker.tokenize(x))
@@ -180,6 +191,7 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
     strat_hist = [process('[Blank]')[0] for _ in range(5) ] #keep last 5 steps of strats
     utterance_num = [0.0 for _ in range(5)]
     global_tuple = []
+    strat_def_dict = load_strat_def()
     # note, if there is no history strat, we use a extra token 7 to represent it.
     # So we had 7 strat + 1 non-strat, that's 8 strats in total
     sys_counter, usr_counter, counter = 0, 0, 0 # count the num of sys sentence in between two ratings
@@ -189,6 +201,8 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
 
         if dialog1[i]['speaker'] == 'sys':
             strat_id = process('[' + dialog1[i]['strategy'] + ']')
+            strat_def = strat_def_dict[dialog1[i]['strategy'].lower()]
+            strat_def = process(strat_def)
             utterance_num.pop(0)
             utterance_num.append(i)
             assert len(strat_id) == 1
@@ -256,6 +270,7 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
                 'response': text,
                 'last_sentence': last_sentence,
                 'strat_id': strat_id,
+                'strat_def': strat_def,
                 'strat_hist': strat_hist.copy(),
                 'sentiment_hist': sentiment_hist.copy(),
                 'emotion': emo_state,
@@ -344,7 +359,7 @@ def convert_inputs_to_features(inputs, returns, emotion, toker, **kwargs):
             cls, bos, eos, returns[i], ipt['strat_hist'], ipt['sentiment_hist'],
             ipt['context'], max_input_length, ipt['last_sentence'],
             ipt['response'], max_decoder_input_length, ipt['strat_id'], 
-            ipt['utterance_num'], ipt['emotion'], ipt['problem'], emotion
+            ipt['utterance_num'], ipt['emotion'], ipt['problem'], emotion, ipt['strat_def']
         )
         features.append(feat)
     return features
@@ -391,6 +406,10 @@ class FeatureDataset(Dataset):
         utterance_num = torch.tensor([f.utterance_num for f in features], dtype=torch.float)
         emotion = torch.tensor([f.emotion for f in features], dtype=torch.float)
         problem = torch.tensor([f.problem for f in features], dtype=torch.float)
+        strat_def = pad_sequence([torch.tensor(f.strat_def, dtype=torch.long) for f in features],
+                          batch_first=True, padding_value=pad)
+        strat_mask = pad_sequence([torch.tensor([1.] * f.strat_length, dtype=torch.float) for f in features],
+                          batch_first=True, padding_value=0.)
         
         if not infer:
             decoder_input_ids = pad_sequence([torch.tensor(f.decoder_input_ids, dtype=torch.long) for f in features],
@@ -419,6 +438,8 @@ class FeatureDataset(Dataset):
             'utterance_num':utterance_num,
             'emotion': emotion,
             'problem': problem,
+            'strat_def': strat_def,
+            'strat_mask': strat_mask,
         }
         
         return res

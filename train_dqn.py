@@ -12,6 +12,7 @@ import time
 from os.path import join
 
 import numpy as np
+from sklearn.model_selection import PredefinedSplit
 import torch
 import tqdm
 from torch import Tensor
@@ -274,7 +275,7 @@ while True:
     train_start_time_epoch = time.time()
     dqn = DQN(model, toker)
     loss_agent_list = []
-    for batch in train_dataloader: 
+    for step, batch in enumerate(train_dataloader): 
         # activate new training mode
         batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in batch.items()}
         batch.update({'global_step': global_step})
@@ -293,13 +294,14 @@ while True:
 
         #context = [toker.convert_ids_to_tokens(batch['input_ids'][i].detach().cpu().numpy()) for i in range(batch['input_ids'].shape[0])]
         # context = [toker.convert_tokens_to_string(c) for c in context]
-        loss_agent = dqn.learn(batch['input_ids'], batch['attention_mask'], 
+        loss_agent, preds = dqn.learn(step, batch['input_ids'], batch['attention_mask'], 
                                 batch['strat_hist'], batch['sentiment_hist'],
                                  batch['reward'], batch['strat_id'],
                                 batch['next_sentence'], batch['attention_mask_nx'],
                                 batch['next_strat_hist'], batch['next_sentiment_hist'])
         # reward = batch['returns']#compute_reward(pred_strat, batch['sentiment'], batch['user_rating'], batch['strat_ids'])
         #loss_agent = 0#dqn(reward, gamma, Q_t+1)
+        batch['preds'] = preds
         loss_agent_list.append(loss_agent)
 
         # 对语言模型进行训练

@@ -13,6 +13,32 @@ from transformers.modeling_outputs import (BaseModelOutput, Seq2SeqModelOutput, 
 from .PARAMS import SAMPLE, TEMPERATURE
 
 
+def reduce_loss(loss, reduction='mean'):
+    return loss.mean() if reduction == 'mean' else loss.sum() if reduction == 'sum' else loss
+
+
+def linear_combination(x, y, epsilon):
+    return epsilon*x + (1-epsilon)*y
+
+
+class LabelSmoothingCrossEntropy(nn.Module):
+    def __init__(self, epsilon: float = 0.1, reduction='none'):
+        super().__init__()
+        self.epsilon = epsilon
+        self.reduction = reduction
+
+    def forward(self, preds, target):
+        n = preds.size()[-1]
+        log_preds = F.log_softmax(preds, dim=-1)
+        loss = reduce_loss(-log_preds.sum(dim=-1), self.reduction)
+        nll = F.nll_loss(log_preds, target, reduction=self.reduction)
+        return linear_combination(loss / n, nll, self.epsilon)
+
+
+
+# loss_func = LabelSmoothingCrossEntropy(epsilon=args.label_smoothing)
+# loss_func(outputs, labels)
+
 class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
     def __init__(self, config: BlenderbotSmallConfig):
         super().__init__(config)
@@ -42,7 +68,6 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
         if not self.training and not validation: # inference
             use_cache = True
         return_dict = return_dict if return_dict is not None else self.config.use_return_dict
-
         outputs = self.model(
             input_ids,
             attention_mask=attention_mask,
@@ -51,8 +76,9 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             past_key_values=past_key_values,
             use_cache=use_cache,
             return_dict=return_dict,
-            strat_id = kwargs['strat_id'],
-            preds = kwargs['preds']
+            #strat_id = kwargs['strat_id'],
+            #preds = kwargs['preds'],
+            **kwargs,
         )
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
         # lm_logits2 = self.lm_head(outputs['last_hidden_stat']) + self.final_logits_bias
@@ -61,13 +87,14 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
         # encode_logits = outputs['encoder_last_hidden_state'] 
         # encode_logits = torch.mean(encode, 1)
         # encode_loss = F.cross_entropy()
-        
+        loss_func = LabelSmoothingCrossEntropy(epsilon=0.1)
         if validation:
             lm_logits = lm_logits[..., :self.toker.vocab_size].contiguous() #?
 
         masked_lm_loss = None
         if labels is not None:
             loss = F.cross_entropy(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1), reduction='none')
+            #loss = loss_func(lm_logits.view(-1, lm_logits.size(-1)), labels.view(-1))
             loss = loss.view(labels.size(0), labels.size(1))
             #labels.ne(-100) = [True, True ...] if no elements equal to -100
             #-100 here is a value of mask,sum(labels.ne(-100)) will give u the size of unmasked tokens
@@ -135,6 +162,7 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             past_key_values=past_key_values,
             use_cache=use_cache,
             return_dict=return_dict,
+            **kwargs,
         )
         tmp = outputs[0]
         lm_logits = self.lm_head(outputs[0]) + self.final_logits_bias
@@ -236,12 +264,22 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             input_ids=input_ids,
             attention_mask=attention_mask,
             return_dict=return_dict,
+            **kwargs,
+        )
+
+        strat_outputs = self.model.encoder(
+            input_ids=kwargs['strat_def'],
+            attention_mask=kwargs['strat_mask'],
+            return_dict=return_dict,
+            **kwargs,
         )
         
         decoder_outputs = self.model.decoder(
             input_ids=decoder_input_ids,
             encoder_hidden_states=encoder_outputs[0],
             encoder_attention_mask=attention_mask,
+            strat_def=strat_outputs[0],
+            strat_mask=kwargs['strat_mask'],
             return_dict=return_dict,
             strat_id=kwargs['strat_id'],
             preds=kwargs['preds']
@@ -260,11 +298,16 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             kwargs['bad_words_ids'] = bad_words_ids
         
         # *****????
+        print(f'!!!kwargs: {kwargs.keys()}')
         generations = super().generate(
             attention_mask=attention_mask,
             encoder_outputs=encoder_outputs,
             decoder_input_ids=decoder_input_ids,
             **kwargs
+            # strat_def = kwargs['strat_def'],
+            # strat_mask = kwargs['strat_mask'],
+            # strat_id = kwargs['strat_id'],
+            # preds = kwargs['preds']
         )
         return encoded_info, generations[:, decoder_input_ids.size(1):]
 

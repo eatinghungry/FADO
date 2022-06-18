@@ -4,6 +4,7 @@
 
 import argparse
 import datetime
+import imp
 import json
 import logging
 import os
@@ -20,6 +21,7 @@ from transformers.optimization import AdamW, get_linear_schedule_with_warmup
 from torch.optim import Adam
 from transformers.trainer_utils import set_seed
 from models.dqn import DQN
+from models.policy_models import Policy_Gradient
 
 from inputters import inputters
 from utils.building_utils import boolean_string, build_model, deploy_model
@@ -206,6 +208,7 @@ eval_dataloader_loss = inputter.valid_dataloader(
 _, model = build_model(checkpoint=args.load_checkpoint, local_rank=args.local_rank, **names)
 model = deploy_model(model, args, local_rank=args.local_rank)
 dqn = DQN(model, toker, lr=args.learning_rate_dqn)
+#dqn = Policy_Gradient(model, toker, lr=args.learning_rate_dqn)
 
 if args.local_rank != -1:
     # when from scratch make sure initial models are the same

@@ -71,7 +71,7 @@ N_ACTIONS = 8
 #         predict = self.predict(x)
 
 #         return predict
-from transformers import BertForSequenceClassification
+#from transformers import BertForSequenceClassification
 class QNet(nn.Module):
     def __init__(self, text_in_size, out_size = 1024, strat_in_size=5*9, sentiment_in_size=3*5, 
             sentiment_embed_size=64, text_embed_size=1024, strat_embed_size=256, 
@@ -133,10 +133,13 @@ class DQN(object):
         #self.eval_net, self.target = QNet(text_in_size).to(device), QNet(text_in_size).to(device)           
         self.eval_net = QNet(text_in_size).to(device)
         self.device = device
-        self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=LR)
+        self.embed = self.model.get_strat_encoder()
+        self.optimizer = torch.optim.Adam(
+                                    [{'params': self.eval_net.parameters(), 'lr': lr},
+                                    {'params': self.embed.parameters(), 'lr': 3e-5} ])
         self.parameters = self.eval_net.parameters()
         self.loss_func2 = nn.CrossEntropyLoss()
-        self.embed = self.model.get_strat_encoder()
+        
        # self.embed = self.model.get_encoder()
     def choose_action(self, context, attention_mask, strat_hist, sentiment_hist,utterance_num, emotion, problem):   
         return_dict = self.model.config.use_return_dict
@@ -233,7 +236,6 @@ class DQN(object):
         return loss.detach().cpu().numpy(), preds.detach()
 
 
-
 class QNet2(nn.Module):
     def __init__(self, text_in_size, out_size = 1024, strat_in_size=5*9, sentiment_in_size=3*5, 
             sentiment_embed_size=64, text_embed_size=1024, strat_embed_size=256):
@@ -278,14 +280,15 @@ class DQNRL(object):
         self.eval_net, self.target_net = QNet2(text_in_size).to(device), QNet2(text_in_size).to(device)           
         #self.eval_net = QNet(text_in_size).to(device)
         self.optimizer = torch.optim.Adam(self.eval_net.parameters(), lr=LR)
+        self.embed = self.model.get_strat_encoder()
 
     def choose_action(self, context, attention_mask, strat_hist, sentiment_hist):   
         return_dict = self.model.config.use_return_dict
-        embed = self.model.get_encoder()(
+        embed = self.embed(
         input_ids=context,
         attention_mask=attention_mask,
         return_dict=return_dict,
-        )[0]        
+        )[0]      
         #embed = context                                    
         #if np.random.uniform() < EPSILON:                                       # 生成一个在[0, 1)内的随机数，如果小于EPSILON，选择最优动作
         actions_value = self.eval_net.forward(embed, strat_hist, sentiment_hist)                
@@ -293,25 +296,30 @@ class DQNRL(object):
         _, actions = actions_value.max(1)
         #action = action[0]                                                  # 输出action的第一个数
         #urn action  
-        return actions   
+        return actions, actions_value   
 
     def save(self, output_dir, global_step):
         torch.save(self.eval_net.state_dict(), join(output_dir, f'DQN_{global_step}.bin'))
 
-    def learn(self, context, attention_mask, strat_hist, sentiment_hist, reward, strat_ids, 
+    def learn(self, step, context, attention_mask, strat_hist, sentiment_hist, reward, strat_ids, 
               next_sentence, attention_mask_nx, next_strat_hist, next_sentiment_hist):    
         #inputs = self.tokenizer(context)#.to('cuda')
         #context = self.tokenizer(context)
         #embed = self.model.get_encoder()(context)
+        
+        if step % 10 == 0:
+            #print('!!!!!!step', step)
+            self.target_net.load_state_dict(self.eval_net.state_dict())
+
         return_dict = self.model.config.use_return_dict
-        embed = self.model.get_encoder()(
+        embed = self.embed(
         input_ids=context,
         attention_mask=attention_mask,
         return_dict=return_dict,
         )[0]
         #embed = self.model(context).last_hidden_state #detach?
         
-        q_eval = self.eval_net(embed, strat_hist, sentiment_hist) #16,8
+        q_eval_og = self.eval_net(embed, strat_hist, sentiment_hist) #16,8
         strat_act = strat_ids.clone()
         for i in range(strat_act.shape[0]):
             if np.random.uniform() < EPSILON:
@@ -323,7 +331,7 @@ class DQNRL(object):
                 strat_act[i] = np.random.randint(0, N_ACTIONS)  
                 reward[i] = 0
 
-        q_eval = q_eval.gather(1, strat_act.unsqueeze(0)) 
+        q_eval = q_eval_og.gather(1, strat_act.unsqueeze(0)) 
 
         embed_next = self.model.get_encoder()(
         input_ids=next_sentence,
@@ -342,4 +350,6 @@ class DQNRL(object):
         loss.backward()
         self.optimizer.step()
         #print(f'DQN LOSSS:{loss.detach().cpu().numpy()}')
-        return loss.detach().cpu().numpy()
+        #print('!!!!!!!',q_next.shape, q_eval.shape)
+
+        return loss.detach().cpu().numpy(), q_eval_og.detach()

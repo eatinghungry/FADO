@@ -12,7 +12,8 @@ from sklearn.metrics import classification_report, f1_score, confusion_matrix
 from torch import Tensor
 from transformers.trainer_utils import set_seed
 from models.dqn import DQN
-
+from torch.nn.utils.rnn import pad_sequence
+import json
 from inputters import inputters
 from inputters.inputter_utils_seq import _norm
 from metric.myMetrics import Metric
@@ -229,7 +230,29 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
     
     res = []
     other_res = {}
+    strat_dict = {
+    0: "Question",
+    1: "Restatement or Paraphrasing",
+    2: "Reflection of feelings",
+    3: "Self-disclosure",
+    4: "Affirmation and Reassurance",
+    5: "Providing Suggestions",
+    6: "Information",
+    7: "Others",
+    }  
+    def load_strat_def(path='/ziyuanqin/projects/nlp/comet/codes_zcj/models/strat_definition.json'):
+        with open(path, 'r') as f:
+            loaded_dict = json.load(f)
+        strat_def_dict = dict()
+        for key, item in loaded_dict.items():
+            strat_def_dict[key.lower()] = item
+        
+        return strat_def_dict
+
+    strat_def_dict=  load_strat_def()
     decode = lambda x: _norm(toker.decode(x))
+    process = lambda x: toker.convert_tokens_to_ids(toker.tokenize(x))
+
     for batch, posts, references, sample_ids in infer_dataloader:
         batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in batch.items()}
         #batch['decoder'][0]
@@ -240,14 +263,33 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
         strat_id, preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
                 batch['strat_hist'], batch['sentiment_hist'], 
                 batch['utterance_num'], batch['emotion'], batch['problem'])
-        #strat_preds += (len(toker) - 9) #strat_preds max value is 8
+        #strat_preds_2 = strat_id + (len(toker) - 9) #strat_preds max value is 8
+        strat_defs = []
+        for i, strat_num in enumerate(strat_id):
+            strat_num = int(strat_num.cpu().numpy())
+            num = strat_dict[strat_num]
+            strat_def = strat_def_dict[num.lower()]
+            strat_def = process(strat_def)
+            strat_defs.append(strat_def)
+
+        pad = toker.pad_token_id
+        if pad is None:
+            pad = toker.eos_token_id
+            assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
+            
+        strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
+                        batch_first=True, padding_value=pad).to('cuda')
+        strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
+                        batch_first=True, padding_value=0.).to('cuda')
+        batch['strat_def'] = strat_def_batch
+        batch['strat_mask'] = strat_mask               
         batch['strat_logits'] = logits
         batch['strat_id'] = strat_id
         batch['preds'] = preds
         #strat_ground_truth = batch['decoder_input_ids'][:,1]
         #tmp = (strat_preds == strat_ground_truth).float()
         #print(f'strat_preds: {strat_preds}')
-        #batch['decoder_input_ids'][:,0] = strat_preds
+        #batch['decoder_input_ids'][:,0] = strat_preds #generate will predict its own strat_id
         encoded_info, generations = model.generate(**batch)
         
         batch_other_res = None
