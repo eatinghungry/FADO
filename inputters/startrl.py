@@ -202,6 +202,8 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, **kwargs):
         if dialog1[i]['speaker'] == 'sys':
             strat_id = process('[' + dialog1[i]['strategy'] + ']')
             strat_def = strat_def_dict[dialog1[i]['strategy'].lower()]
+            #print('****'*20)
+            #print(f"{dialog1[i]['strategy']}: {strat_def}")
             strat_def = process(strat_def)
             utterance_num.pop(0)
             utterance_num.append(i)

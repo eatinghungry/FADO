@@ -134,6 +134,9 @@ class DQN(object):
         self.eval_net = QNet(text_in_size).to(device)
         self.device = device
         self.embed = self.model.get_strat_encoder()
+        #self.embed.load_state_dict(self.model.get_encoder().state_dict())
+        # a = list(model.get_strat_encoder().parameters())
+        # b = list(model.get_encoder().parameters())
         self.optimizer = torch.optim.Adam(
                                     [{'params': self.eval_net.parameters(), 'lr': lr},
                                     {'params': self.embed.parameters(), 'lr': 3e-5} ])
@@ -147,6 +150,8 @@ class DQN(object):
         input_ids=context,
         attention_mask=attention_mask,
         return_dict=return_dict,
+        strat_mask=None,
+        strat_def=None,
         )[0].detach()        
         #embed = context                                    
         #if np.random.uniform() < EPSILON:                                       # 生成一个在[0, 1)内的随机数，如果小于EPSILON，选择最优动作
@@ -164,6 +169,8 @@ class DQN(object):
         input_ids=context,
         attention_mask=attention_mask,
         return_dict=return_dict,
+        strat_mask=None,
+        strat_def=None,
         )[0].detach()        
         #embed = context                                    
         #if np.random.uniform() < EPSILON:                                       # 生成一个在[0, 1)内的随机数，如果小于EPSILON，选择最优动作
@@ -194,6 +201,8 @@ class DQN(object):
         input_ids=context,
         attention_mask=attention_mask,
         return_dict=return_dict,
+        strat_mask=None,
+        strat_def=None,
         )[0]#.detach()
         #print(f'shape of embed: {embed.shape}, shape of inputs: {context.shape}')
         #embed = self.model(context).last_hidden_state #detach?

@@ -206,6 +206,8 @@ eval_dataloader_loss = inputter.valid_dataloader(
 # Prepare Model and Optimizer
 #########################################################################
 _, model = build_model(checkpoint=args.load_checkpoint, local_rank=args.local_rank, **names)
+model.get_strat_encoder().load_state_dict(model.get_encoder().state_dict())
+
 model = deploy_model(model, args, local_rank=args.local_rank)
 dqn = DQN(model, toker, lr=args.learning_rate_dqn)
 #dqn = Policy_Gradient(model, toker, lr=args.learning_rate_dqn)

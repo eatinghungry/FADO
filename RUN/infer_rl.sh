@@ -2,9 +2,9 @@ CUDA_VISIBLE_DEVICES=0 python infer_rl.py \
     --config_name strat \
     --inputter_name stratrl \
     --add_nlg_eval false\
-    --load_checkpoint  /ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-06-18063913.3e-05.32.1gpu/epoch-4.bin\
-    --dqn_embed_checkpoint  /ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-06-18063913.3e-05.32.1gpu/DQN_embed_1590.bin \
-    --dqn_checkpoint  /ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-06-18063913.3e-05.32.1gpu/DQN_1590.bin \
+    --load_checkpoint  /ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-06-20080553.3e-05.16.1gpu/epoch-1.bin\
+    --dqn_embed_checkpoint  /ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-06-20080553.3e-05.16.1gpu/DQN_embed_1908.bin \
+    --dqn_checkpoint  /ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-06-20080553.3e-05.16.1gpu/DQN_1908.bin \
     --fp16 false \
     --max_input_length 160 \
     --max_decoder_input_length 40 \

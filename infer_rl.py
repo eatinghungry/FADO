@@ -264,25 +264,25 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
                 batch['strat_hist'], batch['sentiment_hist'], 
                 batch['utterance_num'], batch['emotion'], batch['problem'])
         #strat_preds_2 = strat_id + (len(toker) - 9) #strat_preds max value is 8
-        strat_defs = []
-        for i, strat_num in enumerate(strat_id):
-            strat_num = int(strat_num.cpu().numpy())
-            num = strat_dict[strat_num]
-            strat_def = strat_def_dict[num.lower()]
-            strat_def = process(strat_def)
-            strat_defs.append(strat_def)
+        # strat_defs = []
+        # for i, strat_num in enumerate(strat_id):
+        #     strat_num = int(strat_num.cpu().numpy())
+        #     num = strat_dict[strat_num]
+        #     strat_def = strat_def_dict[num.lower()]
+        #     strat_def = process(strat_def)
+        #     strat_defs.append(strat_def)
 
-        pad = toker.pad_token_id
-        if pad is None:
-            pad = toker.eos_token_id
-            assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
+        # pad = toker.pad_token_id
+        # if pad is None:
+        #     pad = toker.eos_token_id
+        #     assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
             
-        strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
-                        batch_first=True, padding_value=pad).to('cuda')
-        strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
-                        batch_first=True, padding_value=0.).to('cuda')
-        batch['strat_def'] = strat_def_batch
-        batch['strat_mask'] = strat_mask               
+        # strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
+        #                 batch_first=True, padding_value=pad).to('cuda')
+        # strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
+        #                 batch_first=True, padding_value=0.).to('cuda')
+        # batch['strat_def'] = strat_def_batch
+        # batch['strat_mask'] = strat_mask               
         batch['strat_logits'] = logits
         batch['strat_id'] = strat_id
         batch['preds'] = preds

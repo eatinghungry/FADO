@@ -67,31 +67,31 @@ def eval_model_loss(model, dqn, toker, eval_dataloader, epoch_id, infer, args):
                             batch['strat_hist'], batch['sentiment_hist'], 
                             batch['utterance_num'], batch['emotion'], batch['problem'])
             strat_preds_2 = strat_preds + (len(toker) - 9) #strat_preds max value is 8
-            strat_defs = []
-            for i, strat_num in enumerate(strat_preds):
-                strat_num = int(strat_num.cpu().numpy())
-                num = strat_dict[strat_num]
-                strat_def = strat_def_dict[num.lower()]
-                strat_def = process(strat_def)
-                strat_defs.append(strat_def)
+            # strat_defs = []
+            # for i, strat_num in enumerate(strat_preds):
+            #     strat_num = int(strat_num.cpu().numpy())
+            #     num = strat_dict[strat_num]
+            #     strat_def = strat_def_dict[num.lower()]
+            #     strat_def = process(strat_def)
+            #     strat_defs.append(strat_def)
 
-            pad = toker.pad_token_id
-            if pad is None:
-                pad = toker.eos_token_id
-                assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
+            # pad = toker.pad_token_id
+            # if pad is None:
+            #     pad = toker.eos_token_id
+            #     assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
             
-            strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
-                          batch_first=True, padding_value=pad).to('cuda')
-            strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
-                          batch_first=True, padding_value=0.).to('cuda')
+            # strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
+            #               batch_first=True, padding_value=pad).to('cuda')
+            # strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
+            #               batch_first=True, padding_value=0.).to('cuda')
             
-            batch['strat_def'] = strat_def_batch
-            batch['strat_mask'] = strat_mask
+            # batch['strat_def'] = strat_def_batch
+            # batch['strat_mask'] = strat_mask
                 
             strat_ground_truth = batch['decoder_input_ids'][:,1]
             tmp = (strat_preds_2 == strat_ground_truth).float()
             #print(f'strat_preds: {strat_preds}')
-            batch['decoder_input_ids'][:,1] = strat_preds_2
+            #batch['decoder_input_ids'][:,1] = strat_preds_2
             batch['strat_id'] = strat_preds
             batch['preds'] = preds
             strat_acc.append(torch.mean(tmp).detach().cpu().numpy())
