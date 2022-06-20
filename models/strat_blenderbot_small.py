@@ -104,7 +104,9 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
 
         if not self.training and not validation: # inference
             if not return_dict:
-                output = (lm_logits,) + outputs[1:]
+                #!!!!!!!changed!
+                #output = (lm_logits,) + outputs[1:]
+                output = (lm_logits,) + outputs[2:]
                 return ((masked_lm_loss,) + output) if masked_lm_loss is not None else output
 
             return Seq2SeqLMOutput(

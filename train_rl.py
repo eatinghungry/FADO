@@ -207,6 +207,12 @@ eval_dataloader_loss = inputter.valid_dataloader(
 #########################################################################
 _, model = build_model(checkpoint=args.load_checkpoint, local_rank=args.local_rank, **names)
 model.get_strat_encoder().load_state_dict(model.get_encoder().state_dict())
+for layer in model.get_encoder().layers:
+    layer.self_attn2.load_state_dict(layer.self_attn.state_dict())
+    layer.self_cross_attn.load_state_dict(layer.self_attn.state_dict())
+    c = list(layer.self_attn.parameters())
+    a = list(layer.self_attn2.parameters())
+    b = list(layer.self_cross_attn.parameters())
 
 model = deploy_model(model, args, local_rank=args.local_rank)
 dqn = DQN(model, toker, lr=args.learning_rate_dqn)
