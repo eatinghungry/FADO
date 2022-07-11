@@ -23,6 +23,7 @@ from transformers.trainer_utils import set_seed
 from models.dqn import DQN
 from models.policy_models import Policy_Gradient
 from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModel
+from models.control_gate import Control_gate as Controller
 
 
 from inputters import inputters
@@ -94,7 +95,7 @@ class FGM(object):
         self.model = model
         self.backup = {}
 
-    def attack(self, epsilon=0.25, emb_name='embedding'):
+    def attack(self, epsilon=0.5, emb_name='shared'):
         # emb_name这个参数要换成你模型中embedding的参数名
         tmp = list(self.model.named_parameters())
         for name, param in self.model.named_parameters():
@@ -105,7 +106,7 @@ class FGM(object):
                     r_at = epsilon * param.grad / norm
                     param.data.add_(r_at)
 
-    def restore(self, emb_name='embedding'):
+    def restore(self, emb_name='shared'):
         # emb_name这个参数要换成你模型中embedding的参数名
         for name, param in self.model.named_parameters():
             if param.requires_grad and emb_name in name:
@@ -243,6 +244,7 @@ eval_dataloader_loss = inputter.valid_dataloader(
 _, model = build_model(checkpoint=args.load_checkpoint, local_rank=args.local_rank, **names)
 
 model_emo = AutoModel.from_pretrained("emoberta-base").to(device)
+#model_emo.load_state_dict(torch.load('/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-07-06060551.3e-05.16.1gpu/1908_emo.bin', map_location=device))
 model.get_strat_encoder().load_state_dict(model.get_encoder().state_dict())
 # for layer in model.get_encoder().layers:
 #     layer.self_attn2.load_state_dict(layer.self_attn.state_dict())
@@ -255,8 +257,9 @@ model.get_strat_encoder().load_state_dict(model.get_encoder().state_dict())
 
 model = deploy_model(model, args, local_rank=args.local_rank)
 dqn = DQN(model, toker, lr=args.learning_rate_dqn)
+
 #dqn = Policy_Gradient(model, toker, lr=args.learning_rate_dqn)
-fgm = FGM(model)
+#fgm = FGM(model)
 if args.local_rank != -1:
     # when from scratch make sure initial models are the same
     params = [p.data for p in model.parameters()]
@@ -362,6 +365,7 @@ while True:
         
         batch['rl_branch'] = embed
         batch['preds'] = preds
+        
         loss_agent_list.append(loss_agent)#.detach().cpu().numpy())
 
         # 对语言模型进行训练
@@ -390,12 +394,12 @@ while True:
         else:
             loss.backward()
         
-        ######Adv training########
-        fgm.attack()
-        outputs_adv = model(**batch)
-        loss_adv = outputs_adv.pop('all')
-        loss_adv.backward()
-        fgm.restore()
+        # ######Adv training########
+        # fgm.attack()
+        # outputs_adv = model(**batch)
+        # loss_adv = outputs_adv.pop('all')
+        # loss_adv.backward()
+        # fgm.restore()
 
 
         tmp_loss = float(loss.item()) * (args.train_batch_size * args.gradient_accumulation_steps / input_ids.shape[0])

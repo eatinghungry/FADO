@@ -41,8 +41,7 @@ class InputFeatures(object):
         self,
         input_ids, strat_hist, sentiment_hist,
         decoder_input_ids, labels, returns, ls_ids, 
-        utterance_num, emotion, problem, strat_def, input_emo_ids, 
-        situation, input_ids_next, strat_hist_nx, utterance_num_nx,
+        utterance_num, emotion, problem, strat_def, input_emo_ids, situation
     ):
         self.input_ids = input_ids
         self.input_length = len(input_ids)
@@ -64,26 +63,19 @@ class InputFeatures(object):
         self.input_emo_ids_length = len(input_emo_ids)
         self.situation = situation
         self.situation_length = len(situation)
-        self.input_ids_next = input_ids_next
-        self.input_next_length = len(input_ids_next)
-        self.strat_hist_nx = strat_hist_nx,
-        self.utterance_num_nx = utterance_num_nx
 
 def featurize(
     cls, bos, eos, returns, strat_hist, sentiment_hist,#bos: beginning of sentence?
     context, max_input_length, last_sentence,#context is from both seekers and supporters
     response, max_decoder_input_length, strat_id,
     utterance_num, emotion, problem, emotion_token, strat_def, 
-    context_emo, eos_emo, situation, strat_hist_nx, utterance_num_nx,
+    context_emo, eos_emo, situation,
 ):
     context = [c + [eos] for c in context]
     context_emo = [c + [eos_emo] for c in context_emo]
     #context = [[bos] + c + [eos] for c in context]
     input_ids = sum(context, [])[:-1] #flatten
     input_ids = input_ids[-max_input_length:]
-
-    input_ids_next = input_ids + response + [eos]
-    input_ids_next = input_ids_next[-max_input_length:]
 
     input_emo_ids = sum(context_emo, [])[:-1]
     input_emo_ids = input_emo_ids[-max_input_length:]
@@ -107,8 +99,7 @@ def featurize(
     return InputFeatures(
         input_ids, strat_hist, sentiment_hist,
         decoder_input_ids, labels, returns, ls_ids, 
-        utterance_num, emotion, problem, strat_def, input_emo_ids, 
-        situation,input_ids_next,strat_hist_nx, utterance_num_nx,
+        utterance_num, emotion, problem, strat_def, input_emo_ids, situation,
     )
 
 #def 
@@ -292,13 +283,8 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, toker2: PreTrainedT
             #     pass
             # else:
             #     last_sentence_emo += [text_emo]
-            utterance_next = utterance_num.copy()
-            utterance_next.append(i+1)
-            strat_hist_next = strat_hist.copy()
-            strat_hist_next.pop(0)
-            strat_hist_next.append(strat_id)
             res = {
-                'utterance_num': utterance_num.copy(),
+                'utterance_num': utterance_num,
                 'context': context.copy(),
                 'context_emo': txt_context.copy(),
                 'response': text,
@@ -307,9 +293,7 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, toker2: PreTrainedT
                 'strat_def': strat_def,
                 'situation': situation.copy(),
                 'strat_hist': strat_hist.copy(),
-                'strat_hist_next': strat_hist_next.copy(),
                 'sentiment_hist': sentiment_hist.copy(),
-                'utterance_num_next': utterance_next[-5:].copy(),
                 'emotion': emo_state,
                 'problem': prob_state,
             }
@@ -355,7 +339,7 @@ def convert_data_to_inputs(data, toker: PreTrainedTokenizer, toker2: PreTrainedT
     #     print('haha')
     assert len(usr_rating) == len(sentiment_changes), f'{len(usr_rating)}, {len(sentiment_changes)} not match, {dialog1}'
     #TODO change the following two variables as Hyper-parameters
-    SENT_WEIGHT, RATE_WEIGHT = 1., 1.
+    SENT_WEIGHT, RATE_WEIGHT = 1., 0.
     sentiment_changes_post = list(map(lambda x: x[0]+x[1]-x[2], sentiment_changes))
     returns = list(1.0*np.array(returns[::-1]) + (RATE_WEIGHT*np.array(usr_rating) + SENT_WEIGHT*np.array(sentiment_changes_post)))
     #print(returns)
@@ -402,7 +386,7 @@ def convert_inputs_to_features(inputs, returns, emotion, toker, toker2, **kwargs
             ipt['context'], max_input_length, ipt['last_sentence'],
             ipt['response'], max_decoder_input_length, ipt['strat_id'], 
             ipt['utterance_num'], ipt['emotion'], ipt['problem'], emotion, ipt['strat_def'],
-            ipt['context_emo'], eos_emo, ipt['situation'].copy(), ipt['strat_hist_next'], ipt['utterance_num_next']
+            ipt['context_emo'], eos_emo, ipt['situation'].copy()
         )
         assert feat.situation_length == len(ipt['situation'])+1, f"why the fuck the length {feat.situation_length} and {ipt['situation']}--{len(ipt['situation'])+1} wont match"
         features.append(feat)
@@ -445,16 +429,12 @@ class FeatureDataset(Dataset):
         ls_ids =  pad_sequence([torch.tensor(f.last_sentence_ids, dtype=torch.long) for f in features],
                           batch_first=True, padding_value=pad)   
         input_emo_ids = pad_sequence([torch.tensor(f.input_emo_ids, dtype=torch.long) for f in features],
-                    batch_first=True, padding_value=pad_emo)  
-        input_ids_next = pad_sequence([torch.tensor(f.input_ids_next, dtype=torch.long) for f in features],
-                    batch_first=True, padding_value=pad_emo)                       
+                    batch_first=True, padding_value=pad_emo)                      
         attention_mask = pad_sequence([torch.tensor([1.] * f.input_length, dtype=torch.float) for f in features],
                           batch_first=True, padding_value=0.)
         attention_mask_ls = pad_sequence([torch.tensor([1.] * f.last_sentence_length, dtype=torch.float) for f in features],
                           batch_first=True, padding_value=0.)
         attention_mask_emo = pad_sequence([torch.tensor([1.] * f.input_emo_ids_length, dtype=torch.float) for f in features],
-                          batch_first=True, padding_value=0.)
-        attention_mask_next = pad_sequence([torch.tensor([1.] * f.input_next_length, dtype=torch.float) for f in features],
                           batch_first=True, padding_value=0.)
         situation_ids = pad_sequence([torch.tensor(f.situation, dtype=torch.long) for f in features],
                     batch_first=True, padding_value=pad)
@@ -467,7 +447,6 @@ class FeatureDataset(Dataset):
         rewards = torch.tensor([f.returns for f in features], dtype=torch.float )
         sentiment_hist = torch.tensor([f.sentiment_hist for f in features], dtype=torch.float)
         utterance_num = torch.tensor([f.utterance_num for f in features], dtype=torch.float)
-        utterance_num_nx = torch.tensor([f.utterance_num_nx for f in features], dtype=torch.float)
         emotion = torch.tensor([f.emotion for f in features], dtype=torch.float)
         problem = torch.tensor([f.problem for f in features], dtype=torch.float)
         strat_def = pad_sequence([torch.tensor(f.strat_def, dtype=torch.long) for f in features],
@@ -487,15 +466,12 @@ class FeatureDataset(Dataset):
         #print(len(toker))
         strat_id = torch.tensor([f.labels[0] for f in features], dtype=torch.long) - len(toker) + 9 # why -len(toker) + 8
         strat_hist = torch.tensor([f.strat_hist for f in features], dtype=torch.long)- len(toker) + 9 
-        strat_hist_nx = torch.tensor([f.strat_hist_nx for f in features], dtype=torch.long)- len(toker) + 9
         res = {
             'input_ids': input_ids,
-            'input_ids_next': input_ids_next,
             'last_sentence': ls_ids,
             'attention_mask_ls': attention_mask_ls,
             'ls_lengths': input_length_ls,
             'attention_mask': attention_mask,
-            'attention_mask_next': attention_mask_next,
             'input_emo_ids': input_emo_ids,
             'attention_mask_emo': attention_mask_emo,
             'input_length': input_length,
@@ -512,8 +488,6 @@ class FeatureDataset(Dataset):
             'strat_mask': strat_mask,
             'situation_ids': situation_ids,
             'situation_mask': situation_mask,
-            'strat_hist_nx': strat_hist_nx,
-            'utterance_num_nx': utterance_num
         }
         
         return res

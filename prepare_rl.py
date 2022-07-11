@@ -13,6 +13,7 @@ import torch
 import tqdm
 from inputters import inputters
 from utils.building_utils import build_model
+from transformers import AutoTokenizer
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--config_name', type=str, required=True)
@@ -34,6 +35,8 @@ names = {
 
 inputter = inputters[args.inputter_name]()
 toker = build_model(only_toker=True, **names)
+toker2 = AutoTokenizer.from_pretrained("emoberta-base")
+
 
 
 # with open('./MELD/train_anno7.pkl', 'rb') as f2:
@@ -63,6 +66,7 @@ def process_data(line):
     inputs, returns, emotion = inputter.convert_data_to_inputs(
         data=data,
         toker=toker,
+        toker2 = toker2,
         **kwargs
     )
     features = inputter.convert_inputs_to_features(
@@ -70,6 +74,7 @@ def process_data(line):
         returns = returns,
         emotion = emotion,
         toker=toker,
+        toker2 = toker2,
         **kwargs,
     )
     return features

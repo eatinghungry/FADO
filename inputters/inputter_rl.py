@@ -53,7 +53,7 @@ class BucketSampler(Sampler):
 
 
 class BucketingDataLoader(object):
-    def __init__(self, toker, feature_dataset, batch_size,
+    def __init__(self, toker, toker_emo, feature_dataset, batch_size,
                  bucket=100, shuffle=True, **kwargs):
         assert 'inputter_name' in kwargs
         assert 'config_name' in kwargs
@@ -62,6 +62,7 @@ class BucketingDataLoader(object):
         with open(f'./DATA/{inputter_name}.{config_name}/data_rl2.pkl', 'rb') as f:
             self.data = pickle.load(f)
         self.toker = toker
+        self.toker_emo = toker_emo
         self.feature_dataset = feature_dataset
         self.batch_size = batch_size
         self.bucket_size = bucket * batch_size
@@ -79,7 +80,8 @@ class BucketingDataLoader(object):
                                 droplast=True, shuffle=self.shuffle)
         loader = DataLoader(dataset, batch_sampler=sampler,
                             num_workers=0,  # can test multi-worker
-                            collate_fn=partial(self.feature_dataset.collate, toker=self.toker))
+                            collate_fn=partial(self.feature_dataset.collate, toker=self.toker,
+                                               toker_emo=self.toker_emo))
         yield from loader
 
     def __len__(self):

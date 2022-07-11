@@ -87,7 +87,7 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
         # encode_logits = outputs['encoder_last_hidden_state'] 
         # encode_logits = torch.mean(encode, 1)
         # encode_loss = F.cross_entropy()
-        loss_func = LabelSmoothingCrossEntropy(epsilon=0.1)
+        #loss_func = LabelSmoothingCrossEntropy(epsilon=0.1)
         if validation:
             lm_logits = lm_logits[..., :self.toker.vocab_size].contiguous() #?
 
@@ -244,7 +244,8 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
         })
 
         return pred
-    
+
+
     @torch.no_grad()
     def generate(
         self,
@@ -275,6 +276,14 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             return_dict=return_dict,
             **kwargs,
         )
+
+        # situation_outputs = self.model.encoder(
+        #     input_ids=kwargs['situation_ids'],
+        #     attention_mask=kwargs['situation_mask'],
+        #     return_dict=return_dict,
+        #     **kwargs,
+        # )
+        situation_outputs=[kwargs['situation_ids']]
         
         decoder_outputs = self.model.decoder(
             input_ids=decoder_input_ids,
@@ -284,7 +293,12 @@ class Model(BaseModel, BlenderbotSmallForConditionalGeneration):
             strat_mask=kwargs['strat_mask'],
             return_dict=return_dict,
             strat_id=kwargs['strat_id'],
-            preds=kwargs['preds']
+            strat_embed = kwargs['rl_branch'],
+            preds=kwargs['preds'],
+            emo_embed=kwargs['emo_encoding'],
+            emo_mask=kwargs['attention_mask_emo'],
+            situation=situation_outputs[0],
+            situation_mask=kwargs['situation_mask']
         )
         lm_logits = self.lm_head(decoder_outputs.last_hidden_state) + self.final_logits_bias #?
         self.predict_strategy(encoded_info['strat_logits'], encoded_info)

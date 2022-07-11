@@ -1,9 +1,9 @@
-CUDA_VISIBLE_DEVICES=0 python train_rl.py \
+CUDA_VISIBLE_DEVICES=0 python train_rl2.py \
     --config_name strat \
     --inputter_name stratrl \
     --eval_input_file ./_reformat/dev_anno_nocon.txt \
     --seed 13 \
-    --max_input_length 160 \
+    --max_input_length 300 \
     --max_decoder_input_length 40 \
     --train_batch_size 16 \
     --gradient_accumulation_steps 1 \

@@ -23,6 +23,7 @@ from typing import Optional, Tuple
 import torch
 import torch.utils.checkpoint
 from torch import nn
+import torch.nn.functional as F
 from torch.nn import CrossEntropyLoss
 
 from ...activations import ACT2FN
@@ -136,6 +137,79 @@ class BlenderbotSmallLearnedPositionalEmbedding(nn.Embedding):
 #             past_key_values_length, past_key_values_length + seq_len, dtype=torch.long, device=self.weight.device
 #         )
 #         return super().forward(positions)
+
+
+class Mutual_Attn(nn.Module):
+    "The implemention of the mutual attention between two representations X and Y in the same hidden dim. "
+    def __init__(
+        self,
+        embed_dim: int,
+        num_heads: int = 1,
+        dropout: float = 0.0,
+        layer_norm_eps: float = 1e-8,
+        bias: bool = True,
+    ):
+        super().__init__()
+        self.embed_dim = embed_dim
+        self.layer_norm_eps = layer_norm_eps
+        self.dropout = dropout
+        self.num_heads = num_heads
+        self.head_dim = embed_dim // num_heads
+        assert (
+            self.head_dim * num_heads == self.embed_dim
+        ), f"embed_dim must be divisible by num_heads (got `embed_dim`: {self.embed_dim} and `num_heads`: {num_heads})."
+        self.scaling = self.embed_dim ** -0.5
+        
+        self.q_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.k_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.v1_proj = nn.Linear(embed_dim, embed_dim, bias=bias)
+        self.v2_proj = nn.Linear(embed_dim, embed_dim, bias=bias)   
+        self.layerNorm_1 = nn.LayerNorm(embed_dim, eps=self.layer_norm_eps)
+        self.layerNorm_2 = nn.LayerNorm(embed_dim, eps=self.layer_norm_eps)
+        self.FN = nn.Linear(embed_dim, embed_dim,  bias=bias)
+        self.layerNorm_3 = nn.LayerNorm(embed_dim, eps=self.layer_norm_eps)
+
+    def forward(
+        self,
+        hidden_states_1,
+        hidden_states_2,
+        attention_mask_1=None,
+        attention_mask_2=None,
+        output_attentions=False
+    ):
+        """Input shape: Batch x Time x Channel"""
+
+        bsz, len_1, embed_dim = hidden_states_1.size()
+        bsz, len_2, embed_dim = hidden_states_2.size()
+        query_states = self.q_proj(hidden_states_1)
+        key_states = self.k_proj(hidden_states_2)
+        value_states_1 = self.v1_proj(hidden_states_1)
+        value_states_2 = self.v2_proj(hidden_states_2)
+        
+        # print(query_states.shape, key_states.shape)
+
+        mask1 = torch.where(attention_mask_1 == 1, torch.zeros_like(attention_mask_1, dtype=torch.float),
+                            -1e8 * torch.ones_like(attention_mask_1, dtype=torch.float))
+
+        mask2 = torch.where(attention_mask_2 == 1, torch.zeros_like(attention_mask_2, dtype=torch.float),
+                            -1e8 * torch.ones_like(attention_mask_2, dtype=torch.float))
+
+        attn = torch.bmm(query_states, key_states.transpose(1, 2)) / self.scaling
+        attn_weight_1 = F.softmax(attn + mask2.unsqueeze(1).repeat([1, len_1, 1]), dim=-1)
+        attn_weight_2 = F.softmax(attn.transpose(1, 2) + mask1.unsqueeze(1).repeat([1, len_2, 1]), dim=-1)
+        
+        # print(attn_weight_1.shape, value_states_1.shape)
+
+        # temp_value_states_1 = value_states_1
+        # temp_value_states_2 = value_states_2
+
+        # value_states_1 = self.layerNorm_1(torch.bmm(attn_weight_1, temp_value_states_2) + value_states_1)
+        value_states_2 = self.layerNorm_2(torch.bmm(attn_weight_2, value_states_1) + value_states_2)
+        # value_states_2 = F.relu(F.dropout(self.FN(value_states_2), p=self.dropout, training=self.training))
+        # value_states_2 = self.layerNorm_3(F.relu(F.dropout(self.FN(value_states_2), p=self.dropout, training=self.training)) + value_states_2)
+        value_states_2 = self.layerNorm_3(F.dropout(F.relu(self.FN(value_states_2)), p=self.dropout, training=self.training) + value_states_2)
+
+        return value_states_1, value_states_2, attn_weight_1
 
 # Copied from transformers.models.bart.modeling_bart.BartAttention with Bart->BlenderbotSmall
 class BlenderbotSmallAttention(nn.Module):
@@ -286,18 +360,18 @@ class BlenderbotSmallEncoderLayer(nn.Module):
             dropout=config.attention_dropout,
         )
 
-        self.self_attn2 = BlenderbotSmallAttention(
-            embed_dim=self.embed_dim,
-            num_heads=config.encoder_attention_heads,
-            dropout=config.attention_dropout,
-        )
+        # self.self_attn2 = BlenderbotSmallAttention(
+        #     embed_dim=self.embed_dim,
+        #     num_heads=config.encoder_attention_heads,
+        #     dropout=config.attention_dropout,
+        # )
         # self.self_attn2.load_state_dict(self.self_attn.state_dict())
 
-        self.self_cross_attn = BlenderbotSmallAttention(
-            embed_dim=self.embed_dim,
-            num_heads=config.encoder_attention_heads,
-            dropout=config.attention_dropout,
-        )
+        # self.self_cross_attn = BlenderbotSmallAttention(
+        #     embed_dim=self.embed_dim,
+        #     num_heads=config.encoder_attention_heads,
+        #     dropout=config.attention_dropout,
+        # )
         # self.self_cross_attn.load_state_dict(self.self_attn.state_dict())
 
         self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
@@ -309,6 +383,9 @@ class BlenderbotSmallEncoderLayer(nn.Module):
         self.fc1 = nn.Linear(self.embed_dim, config.encoder_ffn_dim)
         self.fc2 = nn.Linear(config.encoder_ffn_dim, self.embed_dim)
         self.final_layer_norm = nn.LayerNorm(self.embed_dim)
+
+        # self.muAttn = Mutual_Attn(embed_dim=config.d_model)
+        # self.muAttn_st = Mutual_Attn(embed_dim=config.d_model)
 
     def forward(
         self,
@@ -332,47 +409,63 @@ class BlenderbotSmallEncoderLayer(nn.Module):
                 returned tensors for more detail.
         """
         residual = hidden_states
-        hidden_states_context, attn_weights, _ = self.self_attn(
+        hidden_states, attn_weights, _ = self.self_attn(
         # hidden_states, attn_weights, _ = self.self_attn(
             hidden_states=hidden_states,
             attention_mask=attention_mask,
             layer_head_mask=layer_head_mask,
             output_attentions=output_attentions,
         )
-        hidden_states_context = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
-        hidden_states_context = residual + hidden_states_context
+        # hidden_states_context = nn.functional.dropout(hidden_states_context, p=self.dropout, training=self.training)
+        # hidden_states_context = residual + hidden_states_context
+        hidden_states = F.dropout(hidden_states, p=self.dropout, training=self.training)
+        hidden_states = residual + hidden_states
+        hidden_states = self.self_attn_layer_norm(hidden_states)
+
+        # residual = hidden_states
+        # hidden_states = self.activation_fn(self.fc1(hidden_states))
+        # hidden_states = F.dropout(hidden_states, p=self.activation_dropout, training=self.training)
+        # hidden_states = self.fc2(hidden_states)
+        # hidden_states = F.dropout(hidden_states, p=self.dropout, training=self.training)
+        # hidden_states = residual + hidden_states
+        # hidden_states = self.final_layer_norm(hidden_states)
 
 
-        if hidden_strat_states is not None:
-            #strat_mask = _expand_mask(strat_mask, hidden_strat_states.dtype)
-            residual2 = hidden_strat_states
-            hidden_states_strat, attn_weights_strat, _ = self.self_attn2(
-                hidden_states=hidden_strat_states,
-                attention_mask=strat_mask,
-                layer_head_mask=layer_head_mask,
-                output_attentions=output_attentions,
-            )
-            hidden_states_strat = nn.functional.dropout(hidden_states_strat, p=self.dropout, training=self.training)
-            hidden_states_strat = residual2 + hidden_states_strat
-            hidden_states_strat = self.self_strat_attn_layer_norm(hidden_states_strat)
+        # if hidden_strat_states is  not None:
+        #     _, hidden_strat_states, mutual_attn_weights = self.muAttn(hidden_states,
+        #             hidden_strat_states,  )
 
-            hidden_states_cross, attn_weights_cross, _ = self.self_cross_attn(
-                hidden_states=hidden_states,
-                attention_mask=strat_mask2,
-                key_value_states=hidden_strat_states,
-                layer_head_mask=layer_head_mask,
-                output_attentions=output_attentions,
 
-            )
-            hidden_states_cross = nn.functional.dropout(hidden_states_cross, p=self.dropout, training=self.training)
-            hidden_states_cross = residual + hidden_states_cross
-            hidden_states_cross = self.cross_attn_layer_norm(hidden_states_cross)
-            hidden_states_combined = hidden_states_context + hidden_states_cross# + hidden_states_strat 
-            hidden_states = hidden_states_combined + hidden_states_context
+        # if hidden_strat_states is not None:
+        #     #strat_mask = _expand_mask(strat_mask, hidden_strat_states.dtype)
+        #     residual2 = hidden_strat_states
+        #     hidden_states_strat, attn_weights_strat, _ = self.self_attn2(
+        #         hidden_states=hidden_strat_states,
+        #         attention_mask=strat_mask,
+        #         layer_head_mask=layer_head_mask,
+        #         output_attentions=output_attentions,
+        #     )
+        #     hidden_states_strat = nn.functional.dropout(hidden_states_strat, p=self.dropout, training=self.training)
+        #     hidden_states_strat = residual2 + hidden_states_strat
+        #     hidden_states_strat = self.self_strat_attn_layer_norm(hidden_states_strat)
+
+        #     hidden_states_cross, attn_weights_cross, _ = self.self_cross_attn(
+        #         hidden_states=hidden_states,
+        #         attention_mask=strat_mask2,
+        #         key_value_states=hidden_strat_states,
+        #         layer_head_mask=layer_head_mask,
+        #         output_attentions=output_attentions,
+
+        #     )
+        #     hidden_states_cross = nn.functional.dropout(hidden_states_cross, p=self.dropout, training=self.training)
+        #     hidden_states_cross = residual + hidden_states_cross
+        #     hidden_states_cross = self.cross_attn_layer_norm(hidden_states_cross)
+        #     hidden_states_combined = hidden_states_context + hidden_states_cross# + hidden_states_strat 
+        #     hidden_states = hidden_states_combined + hidden_states_context
        
         #hidden_states = residual + hidden_states
-        hidden_states = hidden_states#hidden_states_context + hidden_states_combined
-        hidden_states = self.self_attn_layer_norm(hidden_states)
+        #hidden_states = hidden_states_context
+        #hidden_states = self.self_attn_layer_norm(hidden_states)
 
         residual = hidden_states
         hidden_states = self.activation_fn(self.fc1(hidden_states))
@@ -394,8 +487,8 @@ class BlenderbotSmallEncoderLayer(nn.Module):
             outputs += (attn_weights,)
 
         ### strat_
-        if strat_mask is not None:
-            outputs += (hidden_states_strat,)
+        # if strat_mask is not None:
+        #     outputs += (hidden_states_strat,)
         return outputs
 
 
@@ -423,6 +516,8 @@ class BlenderbotSmallDecoderLayer(nn.Module):
             is_decoder=True,
         )
         self.encoder_attn_layer_norm = nn.LayerNorm(self.embed_dim)
+
+        # self.self_attn_layer_norm = nn.LayerNorm(self.embed_dim)
         #comment out cuz no loading_dict for this
         self.strat_attn = BlenderbotSmallAttention(
             self.embed_dim,
@@ -430,7 +525,7 @@ class BlenderbotSmallDecoderLayer(nn.Module):
             dropout=config.attention_dropout,
             is_decoder=True,
         )
-        #self.strat_attn_layer_norm = nn.LayerNorm(self.embed_dim)
+        self.strat_attn_layer_norm = nn.LayerNorm(self.embed_dim)
         #self.strat_attn.load_state_dict(self.encoder_attn.state_dict())
 
         self.fc1 = nn.Linear(self.embed_dim, config.decoder_ffn_dim)
@@ -492,9 +587,9 @@ class BlenderbotSmallDecoderLayer(nn.Module):
             residual = hidden_states
 
             # cross_attn cached key/values tuple is at positions 3,4 of present_key_value tuple
-            cross_attn_past_key_value = past_key_value[-4:-2] if past_key_value is not None else None
+            cross_attn_past_key_value = past_key_value[-2:] if past_key_value is not None else None
             hidden_states_context, cross_attn_weights, cross_attn_present_key_value = self.encoder_attn(
-            # hidden_states, cross_attn_weights, cross_attn_present_key_value = self.encoder_attn(
+            #hidden_states, cross_attn_weights, cross_attn_present_key_value = self.encoder_attn(
                 hidden_states=hidden_states,
                 key_value_states=encoder_hidden_states,
                 attention_mask=encoder_attention_mask,
@@ -502,37 +597,38 @@ class BlenderbotSmallDecoderLayer(nn.Module):
                 past_key_value=cross_attn_past_key_value,
                 output_attentions=output_attentions,
             )
-            hidden_states_context = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
+            hidden_states_context = nn.functional.dropout(hidden_states_context, p=self.dropout, training=self.training)
             # hidden_states_context = residual + hidden_states_context
-           # hidden_states_context = self.encoder_attn_layer_norm(hidden_states_context)
+            # hidden_states_context = self.encoder_attn_layer_norm(hidden_states_context)
             # hidden_states = nn.functional.dropout(hidden_states, p=self.dropout, training=self.training)
             # hidden_states = residual + hidden_states
             # hidden_states = self.encoder_attn_layer_norm(hidden_states)
             # add cross-attn to positions 3,4 of present_key_value tuple
             present_key_value = present_key_value + cross_attn_present_key_value
 
-        # cross-attention with start Block
-        cross_attn_strat_present_key_value = None
-        cross_attn_strat_weights = None
+        #cross-attention with start Block
+        # cross_attn_strat_present_key_value = None
+        # cross_attn_strat_weights = None
 
         if strat_hidden_states is not None:
-            residual = hidden_states
+            #print('****************')
+            # residual = hidden_states
 
             #cross_attn with strat embedding
-            cross_attn_past_key_value = past_key_value[-2:] if past_key_value is not None else None
-            hidden_states_strat, cross_attn_strat_weights, cross_attn_strat_present_key_value = self.strat_attn(
+            #cross_attn_past_key_value = past_key_value[-4:-2] if past_key_value is not None else None
+            hidden_states_strat, _, _ = self.strat_attn(
                 hidden_states=hidden_states,
                 key_value_states=strat_hidden_states,
                 attention_mask=strat_attention_mask,
-                layer_head_mask=cross_attn_layer_head_mask,
-                past_key_value=cross_attn_past_key_value,
-                output_attentions=output_attentions,
+                #layer_head_mask=cross_attn_layer_head_mask,
+                #past_key_value=cross_attn_past_key_value,
+                #output_attentions=output_attentions,
             )
             hidden_states_strat = nn.functional.dropout(hidden_states_strat, p=self.dropout, training=self.training)
-            # hidden_states_strat = residual + hidden_states_strat
-            #hidden_states_strat = self.encoder_attn_layer_norm(hidden_states_strat)
+        #     #hidden_states_strat = residual + hidden_states_strat
+        #     #hidden_states_strat = self.encoder_attn_layer_norm(hidden_states_strat)
 
-            present_key_value = present_key_value + cross_attn_strat_present_key_value
+        #     present_key_value = present_key_value + cross_attn_strat_present_key_value
 
         # if strat_hidden_states is not None and encoder_hidden_states is not None:
         #     #cross_attn_past_key_value = past_key_value[-2:] if past_key_value is not None else None
@@ -551,8 +647,8 @@ class BlenderbotSmallDecoderLayer(nn.Module):
         #     present_key_value = present_key_value + cross_attn_strat_present_key_value
             
         # add 3 normalization
-        hidden_states = hidden_states + hidden_states_strat + hidden_states_context
-        # hidden_states = hidden_states + hidden_states_context
+        #hidden_states = hidden_states + hidden_states_strat + hidden_states_context
+        hidden_states = residual + hidden_states_context + hidden_states_strat
         hidden_states = self.encoder_attn_layer_norm(hidden_states)
         # Fully Connected
         residual = hidden_states
@@ -928,10 +1024,10 @@ class BlenderbotSmallEncoder(BlenderbotSmallPreTrainedModel):
                     )
 
                 hidden_states = layer_outputs[0]
-                if strat_mask is not None:
-                    strat_hidden_states = layer_outputs[-1]
-                else:
-                    strat_hidden_states = None
+                # if strat_mask is not None:
+                #     strat_hidden_states = layer_outputs[-1]
+                # else:
+                #     strat_hidden_states = None
 
             if output_attentions:
                 all_attentions = all_attentions + (layer_outputs[1],)
@@ -941,12 +1037,12 @@ class BlenderbotSmallEncoder(BlenderbotSmallPreTrainedModel):
 
         if not return_dict:
             return tuple(v for v in [hidden_states, encoder_states, all_attentions] if v is not None)
-        return BaseModelOutput(
-            last_hidden_state=hidden_states,strat_hidden_states=strat_hidden_states, hidden_states=encoder_states, attentions=all_attentions
-        )
         # return BaseModelOutput(
-        #     last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
+        #     last_hidden_state=hidden_states,strat_hidden_states=strat_hidden_states, hidden_states=encoder_states, attentions=all_attentions
         # )
+        return BaseModelOutput(
+            last_hidden_state=hidden_states, hidden_states=encoder_states, attentions=all_attentions
+        )
 
 
 class BlenderbotSmallDecoder(BlenderbotSmallPreTrainedModel):
@@ -1130,6 +1226,7 @@ class BlenderbotSmallDecoder(BlenderbotSmallPreTrainedModel):
             encoder_attention_mask = _expand_mask(encoder_attention_mask, inputs_embeds.dtype, tgt_len=input_shape[-1])
 
         if strat_def is not None and strat_mask is not None:
+            #print('*****')
             strat_mask = _expand_mask(strat_mask, inputs_embeds.dtype, tgt_len=input_shape[-1])
 
         # embed positions
@@ -1340,23 +1437,21 @@ class BlenderbotSmallModel(BlenderbotSmallPreTrainedModel):
         elif return_dict and not isinstance(encoder_outputs, BaseModelOutput):
             encoder_outputs = BaseModelOutput(
                 last_hidden_state=encoder_outputs[0],
-                #!!!!!!!!!!!!!!!
-                strat_hidden = encoder_outputs[1] if len(encoder_outputs) > 1 else None,
-                hidden_states=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
-                attentions=encoder_outputs[3] if len(encoder_outputs) > 3 else None,
+                hidden_states=encoder_outputs[1] if len(encoder_outputs) > 1 else None,
+                attentions=encoder_outputs[2] if len(encoder_outputs) > 2 else None,
             )
         
-        # strat_outputs = self.encoder(
-        #     input_ids=kwargs['strat_def'],
-        #     attention_mask=kwargs['strat_mask'],
-        #     return_dict=return_dict,
-        #     head_mask=head_mask,
-        #     inputs_embeds=inputs_embeds,
-        #     output_attentions=output_attentions,
-        #     output_hidden_states=output_hidden_states,
-        #     **kwargs,
-        # )
-        strat_outputs = encoder_outputs[1]
+        strat_outputs = self.encoder(
+            input_ids=kwargs['strat_def'],
+            attention_mask=kwargs['strat_mask'],
+            return_dict=return_dict,
+            head_mask=head_mask,
+            inputs_embeds=inputs_embeds,
+            output_attentions=output_attentions,
+            output_hidden_states=output_hidden_states,
+            **kwargs,
+        )
+        #strat_outputs = encoder_outputs[1]
 
         # decoder outputs consists of (dec_features, past_key_value, dec_hidden, dec_attn)
         decoder_outputs = self.decoder(
@@ -1375,7 +1470,7 @@ class BlenderbotSmallModel(BlenderbotSmallPreTrainedModel):
             return_dict=return_dict,
             strat_id=strat_id,
             preds=preds,
-            strat_def = strat_outputs,#[0],
+            strat_def = strat_outputs[0],
             strat_mask = kwargs['strat_mask'],
         )
 

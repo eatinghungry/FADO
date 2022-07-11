@@ -138,6 +138,7 @@ class BlenderbotSmallLearnedPositionalEmbedding(nn.Embedding):
 #         return super().forward(positions)
 
 # Copied from transformers.models.bart.modeling_bart.BartAttention with Bart->BlenderbotSmall
+
 class BlenderbotSmallAttention(nn.Module):
     """Multi-headed attention from 'Attention Is All You Need' paper"""
 

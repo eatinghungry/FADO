@@ -19,6 +19,7 @@ from inputters.inputter_utils_seq import _norm
 from metric.myMetrics import Metric
 from utils.building_utils import boolean_string, build_model, deploy_model
 from utils.eval_utils_rl import eval_model_loss
+from transformers import AutoTokenizer, AutoModelForSequenceClassification, AutoModel
 
 logging.basicConfig(format = '%(asctime)s - %(levelname)s - %(name)s -   %(message)s',
                     datefmt = '%m/%d/%Y %H:%M:%S',
@@ -38,6 +39,9 @@ def cut_seq_to_eos(sentence, eos, remove_id=None):
         else:
             break
     return sent
+
+def _norm(s):
+    return ' '.join(s.strip().split())
 
 
 # parser = argparse.ArgumentParser()
@@ -80,6 +84,7 @@ parser.add_argument('--config_name', type=str, default='strat',required=True)
 parser.add_argument('--inputter_name', type=str, default='stratrl', required=True)
 parser.add_argument("--seed", type=int, default=13)
 parser.add_argument("--load_checkpoint", '-c', type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/epoch-0.bin')
+parser.add_argument("--load_checkpoint_emo", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/epoch-0.bin')
 parser.add_argument("--dqn_embed_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_embed_636.bin')
 parser.add_argument("--dqn_checkpoint", type=str, default='/ziyuanqin/projects/nlp/comet/codes_zcj/DATA/stratrl.strat/2022-05-24101313.3e-05.16.1gpu/DQN_636.bin')
 
@@ -136,6 +141,9 @@ names = {
 }
 
 toker, model = build_model(checkpoint=args.load_checkpoint, **names)
+toker_emo = AutoTokenizer.from_pretrained("emoberta-base")
+model_emo = AutoModel.from_pretrained('emoberta-base').to(device)
+model_emo.load_state_dict(torch.load(args.load_checkpoint_emo, map_location=device))#AutoModel.from_pretrained("emoberta-base").to(device)
 dqn = DQN(model, toker)
 dqn.load(args.dqn_checkpoint, args.dqn_embed_checkpoint, device)
 model = deploy_model(model, args) #for multi gpu purpose
@@ -201,6 +209,7 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
     infer_dataloader = inputter.infer_dataloader(
         infer_input_file,
         toker,
+        toker_emo,
         **dataloader_kwargs
     )
     metric_res = {}
@@ -208,6 +217,7 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
         loss_loader = inputter.valid_dataloader(
             corpus_file=infer_input_file,
             toker=toker,
+            toker2=toker_emo,
             batch_size=args.infer_batch_size,
             **dataloader_kwargs
         )
@@ -215,6 +225,7 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
             model,
             dqn,
             toker,
+            model_emo,
             eval_dataloader=loss_loader,
             epoch_id=0,
             infer=True,
@@ -249,6 +260,10 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
         
         return strat_def_dict
 
+    eos = toker.eos_token_id
+    if eos is None:
+        eos = toker.sep_token_id
+
     strat_def_dict=  load_strat_def()
     decode = lambda x: _norm(toker.decode(x))
     process = lambda x: toker.convert_tokens_to_ids(toker.tokenize(x))
@@ -257,33 +272,37 @@ for infer_idx, infer_input_file in enumerate(args.infer_input_file):
         batch = {k: v.to(device) if isinstance(v, Tensor) else v for k, v in batch.items()}
         #batch['decoder'][0]
         batch.update(generation_kwargs)
+        batch['emo_encoding'] = model_emo(input_ids=batch['input_emo_ids'], 
+                    attention_mask=batch['attention_mask_emo'])['last_hidden_state']
         logits = dqn.choose_action2(batch['input_ids'], batch['attention_mask'], 
                 batch['strat_hist'], batch['sentiment_hist'], 
-                batch['utterance_num'], batch['emotion'], batch['problem'])
-        strat_id, preds = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
+                batch['utterance_num'], batch['emotion'], batch['problem'], context_emo=batch['emo_encoding'])
+        strat_id, preds, strat_embed = dqn.choose_action(batch['input_ids'], batch['attention_mask'], 
                 batch['strat_hist'], batch['sentiment_hist'], 
-                batch['utterance_num'], batch['emotion'], batch['problem'])
+                batch['utterance_num'], batch['emotion'], batch['problem'], context_emo=batch['emo_encoding'])
         #strat_preds_2 = strat_id + (len(toker) - 9) #strat_preds max value is 8
-        # strat_defs = []
-        # for i, strat_num in enumerate(strat_id):
-        #     strat_num = int(strat_num.cpu().numpy())
-        #     num = strat_dict[strat_num]
-        #     strat_def = strat_def_dict[num.lower()]
-        #     strat_def = process(strat_def)
-        #     strat_defs.append(strat_def)
+        strat_defs = []
+        for i, strat_num in enumerate(strat_id):
+            strat_num = int(strat_num.cpu().numpy())
+            num = strat_dict[strat_num]
+            strat_def = strat_def_dict[num.lower()]
+            strat_def = process(_norm(strat_def)) + [eos]
+            strat_defs.append(strat_def)
 
-        # pad = toker.pad_token_id
-        # if pad is None:
-        #     pad = toker.eos_token_id
-        #     assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
+
+        pad = toker.pad_token_id
+        if pad is None:
+            pad = toker.eos_token_id
+            assert pad is not None, 'either pad_token_id or eos_token_id should be provided'
             
-        # strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
-        #                 batch_first=True, padding_value=pad).to('cuda')
-        # strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
-        #                 batch_first=True, padding_value=0.).to('cuda')
-        # batch['strat_def'] = strat_def_batch
-        # batch['strat_mask'] = strat_mask               
+        strat_def_batch = pad_sequence([torch.tensor(s, dtype=torch.long) for s in strat_defs],
+                        batch_first=True, padding_value=pad).to('cuda')
+        strat_mask = pad_sequence([torch.tensor([1.] * len(s), dtype=torch.float) for s in strat_defs],
+                        batch_first=True, padding_value=0.).to('cuda')
+        batch['strat_def'] = strat_def_batch
+        batch['strat_mask'] = strat_mask               
         batch['strat_logits'] = logits
+        batch['rl_branch'] = strat_embed
         batch['strat_id'] = strat_id
         batch['preds'] = preds
         #strat_ground_truth = batch['decoder_input_ids'][:,1]
